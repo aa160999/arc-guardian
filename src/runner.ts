@@ -66,6 +66,12 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<s
     "git-config-name": { argv: ["git", "config", "user.name", "$1"], args: 1, description: "repo-local commit author name" },
     "git-config-email": { argv: ["git", "config", "user.email", "$1"], args: 1, description: "repo-local commit author email" },
     "git-amend-reset-author": { argv: ["git", "commit", "--amend", "--no-edit", "--reset-author"], description: "re-stamp last commit with the configured author" },
+    "git-reauthor-all": {
+      argv: ["git", "rebase", "--root", "--committer-date-is-author-date", "-x", "git commit --amend --no-edit --reset-author"],
+      timeoutMs: 120_000,
+      description: "re-stamp EVERY commit with the configured author (fixed exec string, no user input)",
+    },
+    "git-push-force-lease": { argv: ["git", "push", "--force-with-lease", "origin", "main"], timeoutMs: 120_000, description: "force push main (with lease) after a history rewrite" },
     "git-add": { argv: ["git", "add", "-A"], description: "git add -A" },
     "git-commit": { argv: ["git", "commit", "-m", "$1"], args: 1, description: "git commit -m <msg>" },
     "git-push": { argv: ["git", "push", "-u", "origin", "main"], timeoutMs: 120_000, description: "push main" },
