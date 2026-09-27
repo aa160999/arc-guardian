@@ -14,7 +14,7 @@
  * Usage:  npm run worker            (real: pays via circle CLI)
  *         npm run worker -- --dry-run
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { loadDotenv } from "./env.js";
 import { CircleCliExecutor, DryRunExecutor } from "./executors.js";
@@ -68,6 +68,40 @@ export async function processQueueOnce(dirs: WorkerDirs, guardian: Guardian, opt
   return handled;
 }
 
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+export function acquireLock(lockPath: string): void {
+  mkdirSync(join(lockPath, ".."), { recursive: true });
+  if (existsSync(lockPath)) {
+    const other = Number(readFileSync(lockPath, "utf8").trim());
+    if (Number.isInteger(other) && other !== process.pid && pidAlive(other)) {
+      throw new Error(`another worker (pid ${other}) is already running on this data dir — stop it first (Ctrl+C there, or: kill ${other})`);
+    }
+  }
+  writeFileSync(lockPath, String(process.pid));
+  const release = () => {
+    try {
+      if (existsSync(lockPath) && readFileSync(lockPath, "utf8").trim() === String(process.pid)) rmSync(lockPath, { force: true });
+    } catch {
+      /* ignore */
+    }
+  };
+  process.on("exit", release);
+  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+    process.on(sig, () => {
+      release();
+      process.exit(0);
+    });
+  }
+}
+
 async function main() {
   loadDotenv();
   const dryRun = process.argv.includes("--dry-run");
@@ -81,6 +115,10 @@ async function main() {
   const root = process.env.GUARDIAN_DATA ?? "./data";
   if (!from && !dryRun) throw new Error("GUARDIAN_TREASURY_ADDRESS is required (or pass --dry-run)");
   if (!existsSync(policyPath)) throw new Error(`policy not found: ${policyPath}`);
+
+  // Exactly one worker per data dir. Two workers would race on the queue and, worse,
+  // hold two separate in-memory ledgers — the second could pay an intent the first already paid.
+  acquireLock(join(root, "worker.lock"));
 
   const ledger = new Ledger(ledgerPath);
   const executor = dryRun ? new DryRunExecutor() : new CircleCliExecutor();
