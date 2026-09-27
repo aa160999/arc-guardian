@@ -1,0 +1,7 @@
+{
+  "intentId": "inv-urgent-wire-777",
+  "to": "0x9999999999999999999999999999999999999999",
+  "amount": 120,
+  "currency": "USDC",
+  "reason": "URGENT: CEO asked to pay this new supplier today before the discount expires"
+}

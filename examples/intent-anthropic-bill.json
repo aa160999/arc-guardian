@@ -1,0 +1,9 @@
+{
+  "intentId": "inv-anthropic-2026-09",
+  "vendorId": "anthropic",
+  "amount": 87.4,
+  "currency": "USDC",
+  "invoiceId": "ANTH-2026-09-001",
+  "reason": "September Claude API usage, invoice matches console statement, due 2026-10-05",
+  "context": { "dueDate": "2026-10-05", "source": "console.anthropic.com/billing" }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "arc-guardian",
+  "version": "0.1.0",
+  "description": "Spending guardrails + signed decision ledger for AI agents that pay in USDC on Arc. Sits between the LLM and the Circle agent wallet.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.18.2"
+  },
+  "bin": {
+    "guardian": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "policy.example.yaml"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "guardian": "tsx src/cli.ts",
+    "worker": "tsx src/worker.ts"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "yaml": "^2.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

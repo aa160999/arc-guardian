@@ -1,0 +1,18 @@
+# secrets — never commit
+.env
+.env.*
+!.env.example
+
+# runtime data (ledger is per-deployment; commit only examples/)
+data/
+*.ledger.jsonl
+
+# build / deps
+node_modules/
+dist/
+coverage/
+
+# os / editor
+.DS_Store
+.vscode/
+.idea/

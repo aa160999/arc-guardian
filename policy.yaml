@@ -1,0 +1,51 @@
+# Arc Guardian policy — the business owner writes this; the agent cannot edit it.
+# Amounts are in token units (USDC). Windows are rolling.
+version: 1
+business: "Ryan's dev shop (solo, freelance)"
+
+# Global caps across every vendor.
+caps:
+  perTx: 200
+  daily: 300
+  monthly: 1500
+
+# Anything at or above this needs a human `guardian approve` before it moves.
+approvalThreshold: 150
+
+# A recipient not listed below: deny (safe default) or hold (ask a human).
+unknownRecipient: deny
+
+# Same vendor + same amount within N days → hold as a possible duplicate.
+duplicateWindowDays: 14
+
+# Medium-risk vendors get half their caps.
+mediumRiskCapMultiplier: 0.5
+
+vendors:
+  - id: anthropic
+    name: Anthropic (Claude API)
+    address: "0x081ffaab8d11f9cd8a9913aab76464602aac699d"   # testnet stand-in: 2nd agent wallet in this account
+    riskTier: low
+    currencies: [USDC]
+    caps: { perTx: 120, monthly: 400 }
+    notes: monthly API bill; amount varies with usage
+
+  - id: hetzner
+    name: Hetzner Cloud
+    address: "0x2222222222222222222222222222222222222222"
+    riskTier: low
+    caps: { perTx: 60, monthly: 120 }
+    notes: two VPS, fixed price, billed on the 1st
+
+  - id: contractor-designer
+    name: Freelance designer (new, first job)
+    address: "0x3333333333333333333333333333333333333333"
+    riskTier: medium          # caps halved until they have a track record
+    caps: { perTx: 100, monthly: 300 }
+
+  - id: eu-saas
+    name: European SaaS (invoices in EUR)
+    address: "0x4444444444444444444444444444444444444444"
+    riskTier: low
+    currencies: [EURC]
+    caps: { perTx: 40, monthly: 40 }
