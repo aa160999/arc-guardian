@@ -24,7 +24,10 @@
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "guardian": "tsx src/cli.ts",
-    "worker": "tsx src/worker.ts"
+    "worker": "tsx src/worker.ts",
+    "llm-ping": "tsx src/llm.ts",
+    "llm-models": "tsx src/llm-models.ts",
+    "ap": "tsx src/ap-agent.ts"
   },
   "dependencies": {
     "commander": "^12.1.0",

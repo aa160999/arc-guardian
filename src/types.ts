@@ -29,6 +29,8 @@ export const Vendor = z
   .object({
     id: z.string().min(1),
     name: z.string().min(1),
+    /** Other names this vendor appears under on invoices (legal entity, brand, domain). */
+    aliases: z.array(z.string().min(2)).default([]),
     address: EvmAddress,
     riskTier: RiskTier.default("low"),
     currencies: z.array(Currency).min(1).default(["USDC"]),

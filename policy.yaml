@@ -1,51 +1,39 @@
 # Arc Guardian policy — the business owner writes this; the agent cannot edit it.
-# Amounts are in token units (USDC). Windows are rolling.
+# Amounts in USDC. Windows are rolling. Vendor addresses are Arc testnet stand-ins we control.
 version: 1
-business: "Ryan's dev shop (solo, freelance)"
+business: "Ryan's solo dev shop"
 
-# Global caps across every vendor.
 caps:
-  perTx: 200
-  daily: 300
-  monthly: 1500
+  perTx: 100
+  daily: 150
+  monthly: 600
 
-# Anything at or above this needs a human `guardian approve` before it moves.
-approvalThreshold: 150
-
-# A recipient not listed below: deny (safe default) or hold (ask a human).
+approvalThreshold: 80
 unknownRecipient: deny
-
-# Same vendor + same amount within N days → hold as a possible duplicate.
 duplicateWindowDays: 14
-
-# Medium-risk vendors get half their caps.
 mediumRiskCapMultiplier: 0.5
 
 vendors:
-  - id: anthropic
-    name: Anthropic (Claude API)
-    address: "0x081ffaab8d11f9cd8a9913aab76464602aac699d"   # testnet stand-in: 2nd agent wallet in this account
+  - id: openai
+    name: OpenAI
+    aliases: [OpenAI OpCo, ChatGPT]
+    address: "0x081ffaab8d11f9cd8a9913aab76464602aac699d"
     riskTier: low
-    currencies: [USDC]
-    caps: { perTx: 120, monthly: 400 }
-    notes: monthly API bill; amount varies with usage
+    caps: { perTx: 40, monthly: 60 }
+    notes: ChatGPT subscription, billed monthly on the 26th in IDR; plan changed Plus -> Go in Aug 2026
 
-  - id: hetzner
-    name: Hetzner Cloud
-    address: "0x2222222222222222222222222222222222222222"
+  - id: proxy-cheap
+    name: Lietparkas (proxy-cheap.com)
+    aliases: [Lietparkas, proxy-cheap, proxycheap]
+    address: "0xE332751aEde04473Dc7612Fbbc8EE828EEab905e"
     riskTier: low
-    caps: { perTx: 60, monthly: 120 }
-    notes: two VPS, fixed price, billed on the 1st
+    caps: { perTx: 20, monthly: 30 }
+    notes: proxy traffic top-ups, irregular, small
 
-  - id: contractor-designer
-    name: Freelance designer (new, first job)
-    address: "0x3333333333333333333333333333333333333333"
-    riskTier: medium          # caps halved until they have a track record
-    caps: { perTx: 100, monthly: 300 }
-
-  - id: eu-saas
-    name: European SaaS (invoices in EUR)
-    address: "0x4444444444444444444444444444444444444444"
+  - id: webshare
+    name: Webshare Software
+    aliases: [Webshare]
+    address: "0x0000000000000000000000000000000000000001"   # placeholder until a 4th testnet wallet exists
     riskTier: low
-    currencies: [EURC]
-    caps: { perTx: 40, monthly: 40 }
+    caps: { perTx: 15, monthly: 15 }
+    notes: proxy plan, usually settled from prepaid credits

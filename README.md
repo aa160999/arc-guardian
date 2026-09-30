@@ -148,7 +148,7 @@ agent / LLM ──intent──▶ Guardian.pay()
 ## Roadmap (hackathon window)
 
 - [x] First real transfer on Arc testnet through `CircleCliExecutor`; CLI JSON shape pinned in `CircleTransferResponse`
-- [ ] Reference AP agent: invoice (PDF/text) → LLM extraction → intent → Guardian → paid, on the maintainer's own real bills
+- [x] Reference AP agent (`npm run ap`): 6 real invoices (OpenAI in IDR, two proxy vendors) → Gemini extraction + judgement → FX → Guardian → paid on Arc testnet; one payment held as `possible-duplicate`, lifted via `guardian approve`, then paid
 - [ ] EURC vendors via `circle wallet swap` (Arc testnet is the only testnet with swap)
 - [ ] Optional: sign each ledger head with the treasury wallet (`circle wallet sign message`) so the chain is attributable, not just tamper-evident
 - [ ] Optional: on-chain policy contract as a second, unbypassable layer

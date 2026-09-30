@@ -45,6 +45,9 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<s
     "npm-install": { argv: ["npm", "install", "--no-audit", "--no-fund"], timeoutMs: 600_000, description: "install deps" },
     "npm-test": { argv: ["npm", "test", "--silent"], timeoutMs: 300_000, description: "run vitest" },
     "npm-typecheck": { argv: ["npm", "run", "--silent", "typecheck"], timeoutMs: 300_000, description: "tsc --noEmit" },
+    "llm-ping": { argv: ["npm", "run", "--silent", "llm-ping"], timeoutMs: 60_000, description: "check LLM key/model from .env (key never printed)" },
+    "ap-run": { argv: ["npm", "run", "--silent", "ap"], timeoutMs: 600_000, description: "AP agent: read data/invoices, decide, queue intents" },
+    "ap-dry": { argv: ["npm", "run", "--silent", "ap", "--", "--dry"], timeoutMs: 600_000, description: "AP agent decisions only, no intents" },
     "npm-build": { argv: ["npm", "run", "--silent", "build"], timeoutMs: 300_000, description: "tsc build" },
     "guardian-ledger-verify": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "verify"], description: "verify ledger chain" },
     "guardian-ledger-summary": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "summary"], description: "ledger summary" },
@@ -131,9 +134,20 @@ export function resolveCommand(allow: Record<string, CmdSpec>, req: { run: strin
   return { spec, argv };
 }
 
+/** PATH with the usual user-tool dirs (uv/pipx put `arc-canteen` in ~/.local/bin, npm -g often in /opt/homebrew/bin). */
+function toolPath(): string {
+  const home = process.env.HOME ?? "";
+  const extra = [`${home}/.local/bin`, "/opt/homebrew/bin", "/usr/local/bin"];
+  const cur = (process.env.PATH ?? "").split(":");
+  return [...extra.filter((p) => !cur.includes(p)), ...cur].join(":");
+}
+
 export function runArgv(argv: string[], cwd: string, timeoutMs: number): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    execFile(argv[0], argv.slice(1), { cwd, timeout: timeoutMs, maxBuffer: 8 << 20, env: { ...process.env, CIRCLE_ACCEPT_TERMS: "1", GIT_TERMINAL_PROMPT: "0" } }, (err, stdout, stderr) => {
+    // Children re-read .env themselves; don't hand them the values this long-running worker loaded at startup.
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: toolPath(), CIRCLE_ACCEPT_TERMS: "1", GIT_TERMINAL_PROMPT: "0" };
+    for (const k of Object.keys(env)) if (k.startsWith("LLM_")) delete env[k];
+    execFile(argv[0], argv.slice(1), { cwd, timeout: timeoutMs, maxBuffer: 8 << 20, env }, (err, stdout, stderr) => {
       const e = err as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
       const exitCode = e ? (typeof e.code === "number" ? e.code : e.killed ? null : 1) : 0;
       resolve({ exitCode, stdout: clip(String(stdout ?? "")), stderr: clip(String(stderr ?? "") + (e && typeof e.code === "string" ? `\n${e.code}: ${e.message}` : "")) });
