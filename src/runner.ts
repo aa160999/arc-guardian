@@ -28,6 +28,10 @@ export interface CmdSpec {
 }
 
 const SAFE_ARG = /^[\p{L}\p{N} .,:;!?'"()\-_/@#+=\[\]%&*~\n]{1,400}$/u;
+/** Free-text args may never look like a flag or climb directories. */
+function argOk(a: unknown): a is string {
+  return typeof a === "string" && SAFE_ARG.test(a) && !a.startsWith("-") && !a.includes("..");
+}
 
 function requireNoCommits(cwd: string) {
   // refuse to wipe a .git that already has history
@@ -37,11 +41,16 @@ function requireNoCommits(cwd: string) {
   if (existsSync(head) && existsSync(refs) && readdirSync(refs).length > 0) throw new Error(".git already has commits; refusing to re-init");
 }
 
-export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<string, CmdSpec> {
+/**
+ * "core": what an operator legitimately needs from a remote agent — tests, ledger inspection, the AP
+ * agent, plain git, read-only Circle queries. Nothing here moves funds: payments only go through the
+ * Guardian queue. "dev" adds this repo's own release/demo tooling (GitHub Pages, screenshots, TTS,
+ * Canteen updates, history rewrites). Enable with GUARDIAN_RUNNER_PROFILE=dev.
+ */
+export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env, profile: "core" | "dev" = "core"): Record<string, CmdSpec> {
   const treasury = env.GUARDIAN_TREASURY_ADDRESS ?? "";
   const chain = env.GUARDIAN_CHAIN ?? "ARC-TESTNET";
-  return {
-    // --- project ---
+  const core: Record<string, CmdSpec> = {
     "npm-install": { argv: ["npm", "install", "--no-audit", "--no-fund"], timeoutMs: 600_000, description: "install deps" },
     "npm-test": { argv: ["npm", "test", "--silent"], timeoutMs: 300_000, description: "run vitest" },
     "npm-typecheck": { argv: ["npm", "run", "--silent", "typecheck"], timeoutMs: 300_000, description: "tsc --noEmit" },
@@ -49,6 +58,25 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<s
     "ap-run": { argv: ["npm", "run", "--silent", "ap"], timeoutMs: 600_000, description: "AP agent: read data/invoices, decide, queue intents" },
     "ap-dry": { argv: ["npm", "run", "--silent", "ap", "--", "--dry"], timeoutMs: 600_000, description: "AP agent decisions only, no intents" },
     "report": { argv: ["npm", "run", "--silent", "report"], description: "regenerate docs/index.html from ledger + AP records" },
+    "circle-contracts": { argv: ["circle", "contract", "address", "--chain", chain, "--output", "json"], description: "Circle contract addresses on this chain" },
+    "circle-gateway-balance": { argv: ["circle", "gateway", "balance", "--address", treasury, "--chain", chain, "--all", "--output", "json"], description: "Gateway unified balance" },
+    "circle-swap-quote": { argv: ["circle", "wallet", "swap", "USDC", "1", "EURC", "--chain", chain, "--quote", "--output", "json"], description: "quote 1 USDC → EURC on this chain" },
+    "npm-build": { argv: ["npm", "run", "--silent", "build"], timeoutMs: 300_000, description: "tsc build" },
+    "guardian-ledger-verify": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "verify"], description: "verify ledger chain" },
+    "guardian-ledger-summary": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "summary"], description: "ledger summary" },
+    "guardian-approve": { argv: ["npm", "run", "--silent", "guardian", "--", "approve", "$1", "--by", "$2"], args: 2, description: "lift a hold: <intentId> <approver>" },
+    "git-status": { argv: ["git", "status", "--short", "--branch"], description: "git status" },
+    "git-log": { argv: ["git", "log", "--oneline", "-n", "20"], description: "recent commits" },
+    "git-init": { argv: ["git", "init", "-b", "main"], guard: requireNoCommits, description: "git init -b main" },
+    "git-add": { argv: ["git", "add", "-A"], description: "git add -A" },
+    "git-commit": { argv: ["git", "commit", "-m", "$1"], args: 1, description: "git commit -m <msg>" },
+    "git-push": { argv: ["git", "push", "-u", "origin", "main"], timeoutMs: 120_000, description: "push main" },
+    "circle-balance": { argv: ["circle", "wallet", "balance", "--address", treasury, "--chain", chain, "--output", "json"], description: "treasury balance" },
+    "circle-wallet-list": { argv: ["circle", "wallet", "list", "--chain", chain, "--type", "agent", "--output", "json"], description: "list agent wallets" },
+    "circle-tx-list": { argv: ["circle", "transaction", "list", "--address", treasury, "--chain", chain, "--output", "json"], description: "treasury tx history" },
+    "circle-status": { argv: ["circle", "wallet", "status", "--type", "agent"], description: "session status" },
+  };
+  const dev: Record<string, CmdSpec> = {
     "gh-pages-enable": { argv: ["gh", "api", "-X", "POST", "repos/aa160999/arc-guardian/pages", "-f", "source[branch]=main", "-f", "source[path]=/docs"], description: "enable GitHub Pages from /docs on main" },
     "tts": { argv: ["npm", "run", "--silent", "tts"], timeoutMs: 600_000, description: "narrate video/script.json with Gemini TTS → data/video/audio" },
     "chrome-shot-ledger": {
@@ -62,17 +90,6 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<s
       description: "headless Chrome screenshot of the approved tx on Arc explorer",
     },
     "transcribe": { argv: ["npm", "run", "--silent", "transcribe", "--", "$1"], args: 1, timeoutMs: 120_000, description: "transcribe a wav under data/video/audio for QA" },
-    "circle-contracts": { argv: ["circle", "contract", "address", "--chain", chain, "--output", "json"], description: "Circle contract addresses on this chain" },
-    "circle-gateway-balance": { argv: ["circle", "gateway", "balance", "--address", treasury, "--chain", chain, "--all", "--output", "json"], description: "Gateway unified balance" },
-    "circle-swap-quote": { argv: ["circle", "wallet", "swap", "USDC", "1", "EURC", "--chain", chain, "--quote", "--output", "json"], description: "quote 1 USDC → EURC on this chain" },
-    "circle-gateway-deposit-2": { argv: ["circle", "gateway", "deposit", "--amount", "2", "--address", treasury, "--chain", chain, "--method", "direct", "--output", "json"], timeoutMs: 180_000, description: "park 2 USDC in Circle Gateway (unified balance) from the treasury" },
-    "npm-build": { argv: ["npm", "run", "--silent", "build"], timeoutMs: 300_000, description: "tsc build" },
-    "guardian-ledger-verify": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "verify"], description: "verify ledger chain" },
-    "guardian-ledger-summary": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "summary"], description: "ledger summary" },
-    "guardian-approve": { argv: ["npm", "run", "--silent", "guardian", "--", "approve", "$1", "--by", "$2"], args: 2, description: "lift a hold: <intentId> <approver>" },
-    // --- git / github ---
-    "git-status": { argv: ["git", "status", "--short", "--branch"], description: "git status" },
-    "git-log": { argv: ["git", "log", "--oneline", "-n", "20"], description: "recent commits" },
     "git-reinit": {
       argv: ["git", "init", "-b", "main"],
       guard: requireNoCommits,
@@ -83,7 +100,6 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<s
       },
       description: "wipe a commit-less .git and re-init (used once to fix the sandbox-created repo)",
     },
-    "git-init": { argv: ["git", "init", "-b", "main"], guard: requireNoCommits, description: "git init -b main" },
     "git-config-name": { argv: ["git", "config", "user.name", "$1"], args: 1, description: "repo-local commit author name" },
     "git-config-email": { argv: ["git", "config", "user.email", "$1"], args: 1, description: "repo-local commit author email" },
     "git-amend-reset-author": { argv: ["git", "commit", "--amend", "--no-edit", "--reset-author"], description: "re-stamp last commit with the configured author" },
@@ -93,21 +109,13 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<s
       description: "re-stamp EVERY commit with the configured author (fixed exec string, no user input)",
     },
     "git-push-force-lease": { argv: ["git", "push", "--force-with-lease", "origin", "main"], timeoutMs: 120_000, description: "force push main (with lease) after a history rewrite" },
-    "git-add": { argv: ["git", "add", "-A"], description: "git add -A" },
-    "git-commit": { argv: ["git", "commit", "-m", "$1"], args: 1, description: "git commit -m <msg>" },
-    "git-push": { argv: ["git", "push", "-u", "origin", "main"], timeoutMs: 120_000, description: "push main" },
     "gh-repo-create": { argv: ["gh", "repo", "create", "$1", "--public", "--source=.", "--push"], args: 1, timeoutMs: 180_000, description: "create public GitHub repo <name> from this dir and push" },
     "gh-auth-status": { argv: ["gh", "auth", "status"], description: "is gh logged in?" },
-    // --- circle (read-only; payments go through the Guardian queue, never here) ---
-    "circle-balance": { argv: ["circle", "wallet", "balance", "--address", treasury, "--chain", chain, "--output", "json"], description: "treasury balance" },
-    "circle-wallet-list": { argv: ["circle", "wallet", "list", "--chain", chain, "--type", "agent", "--output", "json"], description: "list agent wallets" },
-    "circle-tx-list": { argv: ["circle", "transaction", "list", "--address", treasury, "--chain", chain, "--output", "json"], description: "treasury tx history" },
-    "circle-status": { argv: ["circle", "wallet", "status", "--type", "agent"], description: "session status" },
-    // --- canteen (organizer's CLI) ---
     "canteen-status": { argv: ["arc-canteen", "status"], description: "canteen dashboard" },
     "canteen-update-product": { argv: ["arc-canteen", "update", "product", "$1"], args: 1, description: "submit a product update to Canteen" },
     "canteen-update-traction": { argv: ["arc-canteen", "update", "traction", "$1"], args: 1, description: "submit a traction update to Canteen" },
   };
+  return profile === "dev" ? { ...core, ...dev } : core;
 }
 
 export interface RunnerDirs {
@@ -146,7 +154,7 @@ export function resolveCommand(allow: Record<string, CmdSpec>, req: { run: strin
   const need = spec.args ?? 0;
   if (args.length !== need) throw new Error(`${req.run} needs exactly ${need} arg(s), got ${args.length}`);
   for (const a of args) {
-    if (typeof a !== "string" || !SAFE_ARG.test(a)) throw new Error(`arg rejected by validator: ${JSON.stringify(a)}`);
+    if (!argOk(a)) throw new Error(`arg rejected by validator: ${JSON.stringify(a)}`);
   }
   const argv = spec.argv.map((t) => (/^\$\d+$/.test(t) ? String(args[Number(t.slice(1)) - 1]) : t));
   return { spec, argv };

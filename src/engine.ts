@@ -34,17 +34,20 @@ export function evaluate(policy: Policy, ledger: Ledger, intent: PaymentIntent, 
     state.verdict = worst(state.verdict, v);
   };
 
-  /* 1. Idempotency: the same intent never executes twice. */
-  const prior = ledger.successfulExecutionFor(intent.intentId);
+  /* 1. Idempotency: the same intent never executes twice — including an attempt that reached the
+        provider but did not confirm (crash, non-terminal state). Those need a human to reconcile. */
+  const prior = ledger.submittedExecutionFor(intent.intentId);
   if (prior) {
-    hit("idempotency", "deny", `intent ${intent.intentId} already executed (tx ${prior.txHash ?? prior.providerId ?? "?"})`);
+    hit("idempotency", "deny", `intent ${intent.intentId} already ${prior.ok ? "executed" : "submitted (state " + (prior.state ?? "unknown") + ")"} (${prior.txHash ?? prior.providerId})`);
   }
 
   /* 2. Recipient must be a known vendor (or policy says hold for unknown). */
   const vendor = findVendor(policy, { vendorId: intent.vendorId, to: intent.to });
   const to = vendor?.address ?? intent.to;
-  if (!vendor) {
-    hit("known-recipient", policy.unknownRecipient, `recipient ${intent.to ?? intent.vendorId} is not in the vendor registry`);
+  if (!to) {
+    hit("known-recipient", "deny", `vendorId ${intent.vendorId} is not in the registry and no address was given`);
+  } else if (!vendor) {
+    hit("known-recipient", policy.unknownRecipient, `recipient ${intent.to} is not in the vendor registry`);
   } else if (intent.to && intent.to.toLowerCase() !== vendor.address.toLowerCase()) {
     // Agent supplied both a vendorId and an address, and they disagree. Classic BEC/invoice-fraud shape.
     hit("recipient-mismatch", "deny", `intent.to ${intent.to} != registered address for vendor ${vendor.id} (${vendor.address})`);
@@ -74,14 +77,16 @@ export function evaluate(policy: Policy, ledger: Ledger, intent: PaymentIntent, 
         p.decision.currency === intent.currency &&
         Math.abs(p.decision.amount - intent.amount) < 1e-9 &&
         now.getTime() - Date.parse(p.result.executedAt) <= windowMs &&
-        p.intent.invoiceId !== intent.invoiceId,
+        (intent.invoiceId === undefined || p.intent.invoiceId !== intent.invoiceId),
     );
     if (near) hit("possible-duplicate", "hold", `same vendor + same amount (${intent.amount} ${intent.currency}) paid within ${policy.duplicateWindowDays}d (intent ${near.intent.intentId})`);
   }
 
   /* 6. Caps: per-tx and rolling windows, global and per vendor. */
+  // Caps are per token: a USDC cap only counts USDC payments, an EURC vendor's cap only EURC.
   const spentIn = (scopeVendor: string | undefined, windowMs: number) =>
     settled
+      .filter((p) => p.decision.currency === intent.currency)
       .filter((p) => (scopeVendor ? p.decision.vendorId === scopeVendor : true))
       .filter((p) => now.getTime() - Date.parse(p.result.executedAt) <= windowMs)
       .reduce((s, p) => s + p.decision.amount, 0);

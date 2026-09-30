@@ -173,3 +173,39 @@ describe("Guardian with ledger state", () => {
     expect(() => g.approve("x", "ryan")).toThrow(/not hold/);
   });
 });
+
+describe("regressions from review", () => {
+  it("a replayed intent cannot rewrite the settled amount (spend windows stay honest)", async () => {
+    const { g, ledger } = guardian(() => T0);
+    await g.pay(mk({ intentId: "big", amount: 90, invoiceId: "A" }));
+    // replay with a tiny amount → denied by idempotency, must NOT change what counts as spent
+    const replay = await g.pay(mk({ intentId: "big", amount: 0.01, invoiceId: "A" }));
+    expect(replay.decision.verdict).toBe("deny");
+    const daily = evaluate(POLICY, ledger, mk({ intentId: "next", amount: 1, invoiceId: "B" }), T0).budgets.find((b) => b.scope === "global" && b.window === "daily")!;
+    expect(daily.spent).toBe(90);
+  });
+
+  it("possible-duplicate also fires when neither payment carries an invoiceId", async () => {
+    const { g } = guardian(() => T0);
+    await g.pay(mk({ intentId: "a1", amount: 33 }));
+    const again = await g.pay(mk({ intentId: "a2", amount: 33 }));
+    expect(again.decision.verdict).toBe("hold");
+    expect(again.decision.hits.map((h) => h.rule)).toContain("possible-duplicate");
+  });
+
+  it("an attempt that reached the provider but did not confirm blocks re-execution", () => {
+    const ledger = Ledger.inMemory();
+    const i = mk({ intentId: "stuck", amount: 5 });
+    ledger.append({ kind: "decision", intent: i, decision: evaluate(POLICY, ledger, i, T0) });
+    ledger.append({ kind: "execution", result: { intentId: "stuck", ok: false, providerId: "tx-123", state: "SENT", error: "transfer ended in state SENT", executedAt: T0.toISOString() } });
+    const d = evaluate(POLICY, ledger, i, T0);
+    expect(d.verdict).toBe("deny");
+    expect(d.hits[0].detail).toMatch(/submitted \(state SENT\)/);
+  });
+
+  it("unknown vendorId with no address is denied even when policy says hold for unknown recipients", () => {
+    const p = parsePolicy(`{ version: 1, business: x, unknownRecipient: hold, vendors: [] }`);
+    const d = evaluate(p, Ledger.inMemory(), { intentId: "u", vendorId: "ghost", amount: 1, currency: "USDC", reason: "r" }, T0);
+    expect(d.verdict).toBe("deny");
+  });
+});

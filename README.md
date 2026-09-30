@@ -1,6 +1,6 @@
 # Arc Guardian
 
-**Spending guardrails and a tamper-evident decision ledger for AI agents that pay in USDC on Arc.**
+**Spending guardrails and a hash-chained, tamper-evident decision ledger for AI agents that pay in USDC on Arc.**
 
 Guardian is the one door money leaves through. The agent proposes a payment
 (an *intent*); Guardian evaluates it against a policy the business owner wrote,
@@ -9,7 +9,7 @@ agent wallet move the USDC. The LLM never touches the policy and nothing in the
 policy engine reads the LLM's prose — so an agent cannot talk its way past it.
 
 > Built for the [Tameion Agents Hackathon](https://tameion.thecanteenapp.com/) (Canteen × Circle, Sep 27 – Oct 10 2026).
-> Status: **week 1 / day 1** — policy engine, ledger, CLI, worker and the Circle CLI executor are done and tested.
+> Status (Oct 1): policy engine, ledger, CLI, worker/runner, Circle CLI executor (USDC + EURC via swap), reference AP agent, live ledger page — all exercised on Arc testnet.
 > First live payment on Arc testnet went through Guardian on 2026-09-27:
 > [`0x0f13e2…c216`](https://explorer.testnet.arc.io/tx/0x0f13e232762a0844cec750c173517b109ae775b2cef1b6d12a7cd5181733c216)
 > (1.5 USDC, gas 0.035 USDC). A replay of the same intent and a re-sent invoice were both denied without moving funds.
@@ -34,13 +34,15 @@ managing a business's money goes wrong:
 And once an agent can spend without asking first, the record it leaves behind is
 what makes it trustworthy. Guardian's ledger is append-only and hash-chained:
 every decision commits to what the agent saw, which rule fired, and what went
-on chain. `guardian ledger verify` proves nobody edited it after the fact.
+on chain. `guardian ledger verify` (and the button on the ledger page) recomputes the chain: any edited or
+deleted entry breaks it at that seq. Truncating the tail is only detectable against an external
+anchor — signing the head hash with the treasury wallet is on the roadmap.
 
 ## What it checks
 
 | Rule | Verdict | What it catches |
 | --- | --- | --- |
-| `idempotency` | deny | same `intentId` executing twice (retries, crashed runs) |
+| `idempotency` | deny | same `intentId` again — after a confirmed payment, or after an attempt that reached Circle but did not confirm (crash, non-terminal state → a human reconciles) |
 | `known-recipient` | deny / hold | payee not in the vendor registry (policy chooses) |
 | `recipient-mismatch` | deny | `vendorId` and `to` disagree — the invoice-fraud shape |
 | `currency` | deny | paying a vendor in a token they don't accept |
@@ -48,7 +50,7 @@ on chain. `guardian ledger verify` proves nobody edited it after the fact.
 | medium risk | — | caps multiplied by `mediumRiskCapMultiplier` (default 0.5) |
 | `duplicate-invoice` | deny | same vendor + same `invoiceId` already settled |
 | `possible-duplicate` | hold | same vendor + same amount inside `duplicateWindowDays` |
-| `cap:*` | deny | per-tx and rolling daily/weekly/monthly, global and per vendor |
+| `cap:*` | deny | per-tx and rolling daily/weekly/monthly, global and per vendor; counted per token (USDC caps count USDC, EURC caps count EURC) |
 | `approval-threshold` | hold | amount ≥ threshold needs `guardian approve` |
 | `approval` | allow / deny | a recorded token lifts a **hold** (never a deny), and only for the exact `(to, amount, currency)` that was held |
 
@@ -99,9 +101,10 @@ the policy still decides. Add `--dry-run` to rehearse.
 The same worker also runs an **allow-listed command runner**: drop
 `{ "run": "npm-test" }` or `{ "run": "git-commit", "args": ["msg"] }` into
 `data/cmd/` and read `data/cmd/results/`. Only fixed argv entries in
-`src/runner.ts` can run (tests, typecheck, git add/commit/push, `gh repo create`,
-read-only `circle` queries, `arc-canteen update`). No shell is ever spawned,
-free-text args are validated, and interactive logins are deliberately absent.
+`src/runner.ts` can run. The default `core` profile is tests, typecheck, the AP agent, ledger
+inspection, plain git and read-only `circle` queries — nothing that moves funds. `GUARDIAN_RUNNER_PROFILE=dev`
+adds this repo's own release/demo tooling. No shell is ever spawned, free-text args are validated
+(no leading `-`, no `..`), and interactive logins are deliberately absent.
 
 ## Use it as a library
 

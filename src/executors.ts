@@ -97,7 +97,8 @@ export class CircleCliExecutor implements Executor {
     const executedAt = opts.now.toISOString();
     const steps: Array<{ step: string; raw: unknown }> = [];
     try {
-      const transferArgs = ["wallet", "transfer", d.to, "--amount", String(d.amount), "--address", opts.from, "--chain", opts.chain, "--output", "json"];
+      const amount = fixed6(d.amount);
+      const transferArgs = ["wallet", "transfer", d.to, "--amount", amount, "--address", opts.from, "--chain", opts.chain, "--output", "json"];
       let swapTxHash: string | undefined;
       if (d.currency !== "USDC") {
         const token = TOKEN_CONTRACTS[opts.chain]?.[d.currency];
@@ -113,7 +114,7 @@ export class CircleCliExecutor implements Executor {
         const sell = Math.max(1, Math.ceil((d.amount / rate) * 1.1));
         const expected = sell * rate;
         const slippageBps = Math.min(9000, Math.ceil((1 - d.amount / expected) * 10000) + 100);
-        const sw = await this.run(["wallet", "swap", "USDC", String(sell), d.currency, String(d.amount), "--address", opts.from, "--chain", opts.chain, "--slippage-bps", String(slippageBps), "--idempotency-key", `swap-${d.intentId}`, "--output", "json"]);
+        const sw = await this.run(["wallet", "swap", "USDC", String(sell), d.currency, amount, "--address", opts.from, "--chain", opts.chain, "--slippage-bps", String(slippageBps), "--idempotency-key", `swap-${d.intentId}`, "--output", "json"]);
         steps.push({ step: "swap", raw: sw.raw });
         // shape seen 2026-10-01: { data: { transactions: [ {approve…}, {swap…} ] } } — last one is the swap itself
         const txs = (sw.data?.transactions as Array<{ txHash?: string; state?: string }> | undefined) ?? [];
@@ -155,6 +156,11 @@ export class CircleCliExecutor implements Executor {
       };
     }
   }
+}
+
+/** Token amounts as plain decimals for the CLI (never 1e-7 or 0.30000000000000004). */
+export function fixed6(n: number): string {
+  return n.toFixed(6).replace(/\.?0+$/, "");
 }
 
 function safeJson(s: string): unknown {

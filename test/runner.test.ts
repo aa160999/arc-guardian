@@ -73,3 +73,20 @@ describe("runner", () => {
     expect(allow["circle-balance"].argv).toContain("0xabc");
   });
 });
+
+describe("runner — review hardening", () => {
+  it("rejects flag-like and path-climbing args", () => {
+    expect(() => resolveCommand(ALLOW, { run: "echo", args: ["--unset"] })).toThrow(/rejected/);
+    expect(() => resolveCommand(ALLOW, { run: "echo", args: ["../../.env"] })).toThrow(/rejected/);
+  });
+  it("core profile has no fund-moving or history-rewriting commands", () => {
+    const core = defaultAllowlist({ GUARDIAN_TREASURY_ADDRESS: "0xabc" }, "core");
+    for (const [name, spec] of Object.entries(core)) {
+      const argv = spec.argv.join(" ");
+      expect(argv, name).not.toMatch(/deposit|withdraw|transfer|--force|rebase|reauthor|rm /);
+      if (/wallet swap/.test(argv)) expect(argv, name).toContain("--quote"); // quotes only, never an executed swap
+    }
+    expect(core["git-reauthor-all"]).toBeUndefined();
+    expect(defaultAllowlist({}, "dev")["git-reauthor-all"]).toBeDefined();
+  });
+});

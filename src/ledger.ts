@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { canonicalJson, sha256 } from "./policy.js";
 import type { Decision, ExecutionResult, PaymentIntent } from "./types.js";
@@ -7,8 +7,9 @@ import type { Decision, ExecutionResult, PaymentIntent } from "./types.js";
  * Append-only, hash-chained JSONL ledger.
  *
  * Every entry commits to the previous entry's hash, so a reviewer can replay
- * exactly what the agent saw, what rule fired, and what went on chain — and
- * detect if any line was edited or removed. This is the "continuous euthyna".
+ * exactly what the agent saw, what rule fired, and what went on chain, and any
+ * edit or deletion in the middle breaks the chain at that seq. (Truncating the
+ * tail is only detectable against an external anchor, e.g. a signed head hash.)
  */
 
 export type LedgerEntry =
@@ -29,11 +30,18 @@ export function entryHash(prevHash: string, body: Omit<LedgerEntry, "hash">): st
 
 export class Ledger {
   private entries: LedgerEntry[] = [];
+  /** Bytes of the file as last seen by this instance; used to detect out-of-process appends. */
+  private bytes = 0;
 
   constructor(private readonly path: string) {
-    if (existsSync(path)) {
-      const lines = readFileSync(path, "utf8").split("\n").filter((l) => l.trim().length > 0);
-      this.entries = lines.map((l) => JSON.parse(l) as LedgerEntry);
+    this.load();
+  }
+
+  private load(): void {
+    if (this.path && existsSync(this.path)) {
+      const text = readFileSync(this.path, "utf8");
+      this.bytes = Buffer.byteLength(text);
+      this.entries = text.split("\n").filter((l) => l.trim().length > 0).map((l) => JSON.parse(l) as LedgerEntry);
     }
   }
 
@@ -54,6 +62,8 @@ export class Ledger {
   }
 
   append(e: NewEntry, now: Date = new Date()): LedgerEntry {
+    // Another process (e.g. `guardian approve`) may have appended since we loaded: never fork the chain.
+    if (this.path && existsSync(this.path) && statSync(this.path).size !== this.bytes) this.load();
     const seq = this.entries.length + 1;
     const prevHash = this.headHash;
     const body = { seq, ts: now.toISOString(), ...e, prevHash } as Omit<LedgerEntry, "hash">;
@@ -61,7 +71,9 @@ export class Ledger {
     const full = { ...body, hash } as LedgerEntry;
     if (this.path) {
       mkdirSync(dirname(this.path), { recursive: true });
-      appendFileSync(this.path, JSON.stringify(full) + "\n");
+      const line = JSON.stringify(full) + "\n";
+      appendFileSync(this.path, line);
+      this.bytes += Buffer.byteLength(line);
     }
     this.entries.push(full);
     return full;
@@ -84,6 +96,11 @@ export class Ledger {
 
   executions(): ExecutionResult[] {
     return this.entries.filter((e): e is Extract<LedgerEntry, { kind: "execution" }> => e.kind === "execution").map((e) => e.result);
+  }
+
+  /** Any execution that reached the provider (has an id or tx hash), successful or not. */
+  submittedExecutionFor(intentId: string): ExecutionResult | undefined {
+    return this.executions().find((r) => r.intentId === intentId && (r.providerId || r.txHash));
   }
 
   successfulExecutionFor(intentId: string): ExecutionResult | undefined {
@@ -111,14 +128,18 @@ export class Ledger {
     return undefined;
   }
 
-  /** Successful payments joined with the decision that authorized them. */
+  /** Successful payments joined with the allow-decision that authorized them (the one immediately preceding the execution). */
   settledPayments(): Array<{ decision: Decision; intent: PaymentIntent; result: ExecutionResult }> {
     const out: Array<{ decision: Decision; intent: PaymentIntent; result: ExecutionResult }> = [];
-    for (const r of this.executions()) {
-      if (!r.ok) continue;
-      const d = this.decisionFor(r.intentId);
-      if (d) out.push({ decision: d.decision, intent: d.intent, result: r });
+    const lastAllow = new Map<string, Extract<LedgerEntry, { kind: "decision" }>>();
+    for (const e of this.entries) {
+      if (e.kind === "decision" && e.decision.verdict === "allow") lastAllow.set(e.intent.intentId, e);
+      if (e.kind === "execution" && e.result.ok) {
+        const d = lastAllow.get(e.result.intentId);
+        if (d) out.push({ decision: d.decision, intent: d.intent, result: e.result });
+      }
     }
     return out;
   }
+
 }

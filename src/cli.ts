@@ -30,7 +30,7 @@ function readIntent(file: string): unknown {
 const program = new Command();
 program
   .name("guardian")
-  .description("Spending guardrails + signed decision ledger for agents paying USDC on Arc")
+  .description("Spending guardrails + hash-chained decision ledger for agents paying USDC on Arc")
   .option("-p, --policy <path>", "policy yaml (default $GUARDIAN_POLICY or ./policy.yaml)")
   .option("-l, --ledger <path>", "ledger jsonl (default $GUARDIAN_LEDGER)")
   .option("--from <address>", "treasury agent wallet (default $GUARDIAN_TREASURY_ADDRESS)")

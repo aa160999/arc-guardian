@@ -1,7 +1,7 @@
 {
   "name": "arc-guardian",
   "version": "0.1.0",
-  "description": "Spending guardrails + signed decision ledger for AI agents that pay in USDC on Arc. Sits between the LLM and the Circle agent wallet.",
+  "description": "Spending guardrails + hash-chained decision ledger for AI agents that pay in USDC on Arc. Sits between the LLM and the Circle agent wallet.",
   "license": "MIT",
   "type": "module",
   "engines": {

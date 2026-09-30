@@ -72,7 +72,10 @@ export const PaymentIntent = z
     /** Vendor id from policy, or omit and give `to` for ad-hoc recipients. */
     vendorId: z.string().optional(),
     to: EvmAddress.optional(),
-    amount: z.number().positive(),
+    amount: z
+      .number()
+      .positive()
+      .refine((n) => Number.isInteger(Math.round(n * 1e6)) && Math.abs(n * 1e6 - Math.round(n * 1e6)) < 1e-6, "at most 6 decimal places"),
     currency: Currency.default("USDC"),
     /** Invoice / bill identifier as printed by the vendor. Drives exact-dup detection. */
     invoiceId: z.string().optional(),

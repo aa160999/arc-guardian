@@ -121,6 +121,7 @@ export async function fxUsdPer(quote: string, fetchFn = fetch): Promise<Fx> {
 export function matchVendor(policy: Policy, vendorName: string): string | undefined {
   const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const n = norm(vendorName);
+  if (n.length < 3) return undefined;
   const hit = policy.vendors.find((v) => [v.id, v.name, ...v.aliases].map(norm).some((k) => k.length >= 3 && (n.includes(k) || k.includes(n))));
   return hit?.id;
 }
@@ -164,11 +165,6 @@ export async function treasuryView(env: NodeJS.ProcessEnv): Promise<TreasuryView
     /* gateway optional */
   }
   return { walletUsdc, gatewayUsdc, spendableUsdc: walletUsdc };
-}
-
-/** @deprecated use treasuryView */
-export async function treasuryBalanceUsdc(env: NodeJS.ProcessEnv): Promise<number | undefined> {
-  return (await treasuryView(env))?.spendableUsdc;
 }
 
 /* ---------- main pipeline ---------- */

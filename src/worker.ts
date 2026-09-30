@@ -79,13 +79,18 @@ function pidAlive(pid: number): boolean {
 
 export function acquireLock(lockPath: string): void {
   mkdirSync(join(lockPath, ".."), { recursive: true });
-  if (existsSync(lockPath)) {
+  const tryCreate = () => writeFileSync(lockPath, String(process.pid), { flag: "wx" }); // atomic: fails if the file exists
+  try {
+    tryCreate();
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     const other = Number(readFileSync(lockPath, "utf8").trim());
     if (Number.isInteger(other) && other !== process.pid && pidAlive(other)) {
       throw new Error(`another worker (pid ${other}) is already running on this data dir — stop it first (Ctrl+C there, or: kill ${other})`);
     }
+    rmSync(lockPath, { force: true }); // stale lock from a dead process
+    tryCreate();
   }
-  writeFileSync(lockPath, String(process.pid));
   const release = () => {
     try {
       if (existsSync(lockPath) && readFileSync(lockPath, "utf8").trim() === String(process.pid)) rmSync(lockPath, { force: true });
@@ -130,7 +135,7 @@ async function main() {
   let seenLedgerMtime = ledgerMtime();
   const dirs = makeDirs(root);
   const runnerDirs = makeRunnerDirs(root);
-  const allow = defaultAllowlist();
+  const allow = defaultAllowlist(process.env, process.env.GUARDIAN_RUNNER_PROFILE === "dev" ? "dev" : "core");
   console.log(`[worker] ${dryRun ? "DRY-RUN" : "LIVE"} chain=${chain} from=${from ?? "-"} policy=${policyPath} watching ${dirs.queue} every ${intervalMs}ms`);
   console.log(`[runner] watching ${runnerDirs.cmd} — allowed: ${Object.keys(allow).join(", ")}`);
 

@@ -57,3 +57,17 @@ vendors:
     expect(() => parsePolicy(`{ version: 1, business: x, approvalThreshhold: 5 }`)).toThrow(/invalid policy/);
   });
 });
+
+describe("Ledger — out-of-process appends", () => {
+  it("reloads before appending so two writers never fork the chain", () => {
+    const dir = mkdtempSync(join(tmpdir(), "guardian-"));
+    const path = join(dir, "l.jsonl");
+    const a = new Ledger(path);
+    const b = new Ledger(path);
+    a.append({ kind: "approval", intentId: "x", approvalToken: "t1", approver: "a", bind: "h" });
+    b.append({ kind: "approval", intentId: "y", approvalToken: "t2", approver: "b", bind: "h" }); // b loaded before a wrote
+    const fresh = new Ledger(path);
+    expect(fresh.length).toBe(2);
+    expect(fresh.verify()).toEqual({ ok: true });
+  });
+});
