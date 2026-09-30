@@ -26,7 +26,11 @@ export interface ReportInput {
 
 export function buildReportData(i: ReportInput) {
   const entries = i.ledger.all();
-  const settled = i.ledger.settledPayments();
+  const all = i.ledger.settledPayments();
+  const isTest = (id: string) => /^test-/.test(id);
+  const settled = all.filter((p) => !isTest(p.intent.intentId));
+  const testPayments = all.filter((p) => isTest(p.intent.intentId));
+  const latestAp = (i.apRecords as Array<{ at?: string; treasury?: { walletUsdc: number; gatewayUsdc: number } }>).filter((r) => r.treasury).sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
   const counts = { allow: 0, hold: 0, deny: 0 };
   for (const e of entries) if (e.kind === "decision") counts[e.decision.verdict]++;
   const byVendor: Record<string, { n: number; total: number }> = {};
@@ -42,7 +46,16 @@ export function buildReportData(i: ReportInput) {
     treasury: i.treasury,
     repoUrl: i.repoUrl,
     explorerBase: (explorerTxUrl(i.chain, "") ?? "").replace(/\/tx\/$/, ""),
-    summary: { decisions: counts, settled: settled.length, usdcMoved: Math.round(settled.reduce((s, p) => s + p.decision.amount, 0) * 100) / 100, byVendor, chainOk: i.ledger.verify().ok, entries: entries.length },
+    summary: {
+      decisions: counts,
+      settled: settled.length,
+      usdcMoved: Math.round(settled.reduce((s, p) => s + p.decision.amount, 0) * 100) / 100,
+      testPayments: testPayments.length,
+      byVendor,
+      chainOk: i.ledger.verify().ok,
+      entries: entries.length,
+      treasury: latestAp?.treasury ?? null,
+    },
     vendors: i.policy.vendors.map((v) => ({ id: v.id, name: v.name, riskTier: v.riskTier, caps: v.caps, notes: v.notes ?? "" })),
     caps: i.policy.caps,
     approvalThreshold: i.policy.approvalThreshold ?? null,
@@ -91,6 +104,7 @@ details summary{cursor:pointer;color:var(--mut);font-size:13px}
   <div class="card"><div class="k">Decisions</div><div class="v" id="c-dec"></div></div>
   <div class="card"><div class="k">Ledger entries</div><div class="v" id="c-entries"></div></div>
   <div class="card"><div class="k">Hash chain</div><div class="v" id="c-chain"></div></div>
+  <div class="card"><div class="k">Treasury (wallet + Gateway)</div><div class="v" id="c-treasury"></div></div>
 </div>
 
 <p><button id="verify">Verify chain in this browser</button><span id="verify-out"></span></p>
@@ -120,6 +134,8 @@ $('#c-moved').innerHTML = D.summary.usdcMoved + ' <small>USDC</small>';
 $('#c-dec').innerHTML = D.summary.decisions.allow+' <small>allow</small> · '+D.summary.decisions.hold+' <small>hold</small> · '+D.summary.decisions.deny+' <small>deny</small>';
 $('#c-entries').textContent = D.summary.entries;
 $('#c-chain').innerHTML = D.summary.chainOk ? '<span class="ok">intact</span>' : '<span class="bad">BROKEN</span>';
+$('#c-treasury').innerHTML = D.summary.treasury ? D.summary.treasury.walletUsdc+' <small>USDC wallet</small> + '+D.summary.treasury.gatewayUsdc+' <small>in Gateway</small>' : '<small>n/a</small>';
+if (D.summary.testPayments) $('#c-settled').innerHTML += ' <small>+ '+D.summary.testPayments+' test</small>';
 
 // AP judgements
 const apRows = (D.ap||[]).slice().sort((a,b)=> (a.extracted.issueDate||'').localeCompare(b.extracted.issueDate||''));

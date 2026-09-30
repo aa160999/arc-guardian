@@ -52,6 +52,8 @@ on chain. `guardian ledger verify` proves nobody edited it after the fact.
 | `approval-threshold` | hold | amount ≥ threshold needs `guardian approve` |
 | `approval` | allow / deny | a recorded token lifts a **hold** (never a deny), and only for the exact `(to, amount, currency)` that was held |
 
+Circle stack used: **Agent Wallets** (custody, gas sponsored in USDC), **USDC** native settlement, **EURC** via **Swap** for vendors that invoice in euros, **Gateway** unified balance in the treasury view, **Contracts** lookups for token addresses.
+
 Deny always beats hold; hold always beats allow.
 
 ## Quickstart (dry run, no wallet needed)
@@ -149,7 +151,8 @@ agent / LLM ──intent──▶ Guardian.pay()
 
 - [x] First real transfer on Arc testnet through `CircleCliExecutor`; CLI JSON shape pinned in `CircleTransferResponse`
 - [x] Reference AP agent (`npm run ap`): 6 real invoices (OpenAI in IDR, two proxy vendors) → Gemini extraction + judgement → FX → Guardian → paid on Arc testnet; one payment held as `possible-duplicate`, lifted via `guardian approve`, then paid
-- [ ] EURC vendors via `circle wallet swap` (Arc testnet is the only testnet with swap)
+- [x] EURC vendors: quote → `circle wallet swap USDC n EURC <owed>` (whole-number sell, stop-limit = amount owed) → `transfer --token EURC`; live on testnet (swap 0xf01a17…, transfer 0x72a56c…)
+- [x] Gateway: treasury view = wallet USDC + USDC parked in Circle Gateway (`circle gateway deposit --method direct`, tx 0x85087f…); shown to the agent and on the ledger page
 - [ ] Optional: sign each ledger head with the treasury wallet (`circle wallet sign message`) so the chain is attributable, not just tamper-evident
 - [ ] Optional: on-chain policy contract as a second, unbypassable layer
 - [ ] Small web view over the ledger with Arc explorer links, for reviewers who click around without us in the room

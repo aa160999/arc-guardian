@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -86,5 +86,44 @@ describe("CircleCliExecutor", () => {
   it("explorer url only for known chains", () => {
     expect(explorerTxUrl("ARC", "0xabc")).toBe("https://explorer.arc.io/tx/0xabc");
     expect(explorerTxUrl("BASE", "0xabc")).toBeUndefined();
+  });
+});
+
+describe("CircleCliExecutor — EURC path (quote → swap → transfer --token)", () => {
+  const EURC_DECISION: Decision = { ...DECISION, currency: "EURC", amount: 10 };
+  it("sells a whole number of USDC with stop-limit = amount owed, then transfers EURC", async () => {
+    // fake circle: records argv, answers quote / swap / transfer
+    const dir = mkdtempSync(join(tmpdir(), "fake-circle-"));
+    const log = join(dir, "argv.log");
+    const bin = join(dir, "circle");
+    writeFileSync(
+      bin,
+      `#!/bin/sh
+echo "$@" >> "${log}"
+case "$*" in
+  *--quote*) echo '{"data":{"estimatedOutput":"0.822275","sellToken":"USDC","buyToken":"EURC"}}';;
+  *"wallet swap"*) echo '{"data":{"transactions":[{"id":"ap","state":"COMPLETE","txHash":"0xaaaa"},{"id":"swap-1","state":"COMPLETE","txHash":"0x'$(printf 's%.0s' $(seq 1 63))'"}]}}';;
+  *"wallet transfer"*) echo '{"data":{"id":"tr-1","state":"COMPLETE","txHash":"0x'$(printf 't%.0s' $(seq 1 63))'","networkFee":"0.03"}}';;
+  *) echo '{}';;
+esac
+`,
+    );
+    chmodSync(bin, 0o755);
+    const r = await new CircleCliExecutor(bin).execute(EURC_DECISION, { from: "0xfrom", chain: "ARC-TESTNET", now: new Date() });
+    expect(r.ok).toBe(true);
+    expect(r.swapTxHash).toMatch(/^0xs+$/);
+    expect(r.txHash).toMatch(/^0xt+$/);
+    const calls = readFileSync(log, "utf8").trim().split("\n");
+    expect(calls[0]).toContain("wallet swap USDC 1 EURC --chain ARC-TESTNET --quote");
+    // 10 / 0.822275 * 1.1 = 13.37 → sell 14 USDC (whole number); stop-limit = 10 EURC; expected 11.51 → slippage ceil(1313.x)+100 = 1414 bps
+    expect(calls[1]).toContain("wallet swap USDC 14 EURC 10 --address 0xfrom --chain ARC-TESTNET --slippage-bps 1414 --idempotency-key swap-t");
+    expect(calls[2]).toContain("wallet transfer 0x081ffaab8d11f9cd8a9913aab76464602aac699d --amount 10 --address 0xfrom --chain ARC-TESTNET --output json --token 0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a");
+  });
+
+  it("refuses a currency with no known contract on the chain", async () => {
+    const bin = fakeCircle(`echo '{}'`);
+    const r = await new CircleCliExecutor(bin).execute(EURC_DECISION, { from: "0x", chain: "ARC", now: new Date() });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/no EURC contract/);
   });
 });

@@ -139,6 +139,8 @@ export interface ExecutionResult {
   networkFee?: string;
   confirmedAt?: string;
   explorerUrl?: string;
+  /** When the vendor is paid in a non-USDC token, the USDC→token swap that preceded the transfer. */
+  swapTxHash?: string;
   error?: string;
   /** Raw provider output, kept for audit; never parsed for policy. */
   raw?: unknown;

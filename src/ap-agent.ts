@@ -60,7 +60,9 @@ export interface ApRecord {
   vendorId?: string;
   fx?: Fx;
   usdc?: number;
+  payCurrency?: "USDC" | "EURC";
   balanceUsdc?: number;
+  treasury?: TreasuryView;
   intentId?: string;
   queued: boolean;
   skippedBecause?: string;
@@ -123,20 +125,50 @@ export function matchVendor(policy: Policy, vendorName: string): string | undefi
   return hit?.id;
 }
 
-export async function treasuryBalanceUsdc(env: NodeJS.ProcessEnv): Promise<number | undefined> {
+export interface TreasuryView {
+  walletUsdc: number;
+  gatewayUsdc: number;
+  /** what the agent may spend from the wallet right now */
+  spendableUsdc: number;
+}
+
+/**
+ * Treasury = agent wallet USDC on this chain + USDC parked in Circle Gateway (the unified,
+ * chain-abstracted balance). Only the wallet part is spendable by `circle wallet transfer`;
+ * Gateway is reported so the agent sees "what the company actually holds" before deciding.
+ */
+export async function treasuryView(env: NodeJS.ProcessEnv): Promise<TreasuryView | undefined> {
   const address = env.GUARDIAN_TREASURY_ADDRESS;
   const chain = env.GUARDIAN_CHAIN ?? "ARC-TESTNET";
   if (!address) return undefined;
+  const cliEnv = { ...env, CIRCLE_ACCEPT_TERMS: "1" };
+  let walletUsdc: number | undefined;
   try {
-    const { stdout } = await execFileP("circle", ["wallet", "balance", "--address", address, "--chain", chain, "--output", "json"], { env: { ...env, CIRCLE_ACCEPT_TERMS: "1" } });
+    const { stdout } = await execFileP("circle", ["wallet", "balance", "--address", address, "--chain", chain, "--output", "json"], { env: cliEnv });
     // shape seen 2026-10-01: { data: { balances: [{ amount, token: { symbol, isNative, ... } }] } }
     const j = JSON.parse(stdout) as { data?: { balances?: Array<{ amount: string; token?: { symbol?: string; isNative?: boolean } }> } };
     const rows = (j.data?.balances ?? []).filter((b) => (b.token?.symbol ?? "").toUpperCase() === "USDC");
     const pick = rows.find((b) => b.token?.isNative) ?? rows[0];
-    return pick ? Number(pick.amount) : undefined;
+    walletUsdc = pick ? Number(pick.amount) : undefined;
   } catch {
     return undefined;
   }
+  if (walletUsdc === undefined) return undefined;
+  let gatewayUsdc = 0;
+  try {
+    const { stdout } = await execFileP("circle", ["gateway", "balance", "--address", address, "--chain", chain, "--output", "json"], { env: cliEnv });
+    // shape seen 2026-10-01: { data: { total: "0", balances: [{ network, domain, balance }] } }
+    const j = JSON.parse(stdout) as { data?: { total?: string } };
+    gatewayUsdc = Number(j.data?.total ?? 0) || 0;
+  } catch {
+    /* gateway optional */
+  }
+  return { walletUsdc, gatewayUsdc, spendableUsdc: walletUsdc };
+}
+
+/** @deprecated use treasuryView */
+export async function treasuryBalanceUsdc(env: NodeJS.ProcessEnv): Promise<number | undefined> {
+  return (await treasuryView(env))?.spendableUsdc;
 }
 
 /* ---------- main pipeline ---------- */
@@ -150,6 +182,7 @@ export interface ApOptions {
   today: string;
   dry: boolean;
   balanceUsdc?: number;
+  treasury?: TreasuryView;
   chatFn?: typeof chat;
   fetchFn?: typeof fetch;
 }
@@ -186,6 +219,7 @@ export async function runAp(o: ApOptions): Promise<ApRecord[]> {
               vendorRegistryEntry: vendor ? { id: vendor.id, name: vendor.name, riskTier: vendor.riskTier, currencies: vendor.currencies, ownerNotes: vendor.notes ?? null } : null,
               priorInvoicesFromVendor: history,
               treasuryBalanceUsdc: remaining ?? "unknown",
+              treasuryGatewayUsdc: o.treasury?.gatewayUsdc ?? "unknown",
             },
             null,
             2,
@@ -199,8 +233,13 @@ export async function runAp(o: ApOptions): Promise<ApRecord[]> {
     if (judgement.action === "pay_now" && ex.amountDue > 0) {
       const fx = await fxUsdPer(ex.currency, o.fetchFn);
       const usdc = Math.round((ex.amountDue / fx.rate) * 100) / 100;
+      // Vendors that accept EURC get paid in EURC at face value (swap happens in the executor); budget is still tracked in USDC.
+      const payInEurc = ex.currency === "EUR" && !!vendor?.currencies.includes("EURC");
+      const payCurrency: "USDC" | "EURC" = payInEurc ? "EURC" : "USDC";
+      const payAmount = payInEurc ? Math.round(ex.amountDue * 100) / 100 : usdc;
       rec.fx = fx;
       rec.usdc = usdc;
+      rec.payCurrency = payCurrency;
       rec.balanceUsdc = remaining;
       if (!vendorId) {
         rec.skippedBecause = "vendor not in policy registry; Guardian would deny — needs a human to add the vendor";
@@ -211,10 +250,10 @@ export async function runAp(o: ApOptions): Promise<ApRecord[]> {
         const intent = {
           intentId,
           vendorId,
-          amount: usdc,
-          currency: "USDC",
+          amount: payAmount,
+          currency: payCurrency,
           invoiceId: ex.invoiceId,
-          reason: `${ex.description} (${ex.currency} ${ex.amountDue} @ ${fx.rate} ${fx.quote}/USD, ${fx.source}). ${judgement.reasoning}`,
+          reason: `${ex.description} (${ex.currency} ${ex.amountDue}${payInEurc ? " paid as EURC via USDC→EURC swap" : ` @ ${fx.rate} ${fx.quote}/USD, ${fx.source}`}). ${judgement.reasoning}`,
           context: { file, issueDate: ex.issueDate, dueDate: ex.dueDate, confidence: judgement.confidence, anomalies: judgement.anomalies },
         };
         writeFileSync(join(o.queueDir, `${intentId}.json`), JSON.stringify(intent, null, 2) + "\n");
@@ -234,7 +273,8 @@ if (process.argv[1] && /ap-agent\.(ts|js)$/.test(process.argv[1])) {
   loadDotenv();
   const dry = process.argv.includes("--dry");
   const policy = loadPolicy(process.env.GUARDIAN_POLICY ?? "./policy.yaml");
-  const balanceUsdc = await treasuryBalanceUsdc(process.env); // read-only, fine in --dry too
+  const treasury = await treasuryView(process.env); // read-only, fine in --dry too
+  const balanceUsdc = treasury?.spendableUsdc;
   const records = await runAp({
     invoicesDir: "./data/invoices",
     outDir: "./data/ap",
@@ -244,8 +284,9 @@ if (process.argv[1] && /ap-agent\.(ts|js)$/.test(process.argv[1])) {
     today: new Date().toISOString().slice(0, 10),
     dry,
     balanceUsdc,
+    treasury,
   });
   const n = (a: string) => records.filter((r) => r.judgement.action === a).length;
-  console.log(JSON.stringify({ invoices: records.length, pay_now: n("pay_now"), schedule: n("schedule"), skip: n("skip"), hold: n("hold"), queued: records.filter((r) => r.queued).length, balanceUsdc }, null, 2));
+  console.log(JSON.stringify({ invoices: records.length, pay_now: n("pay_now"), schedule: n("schedule"), skip: n("skip"), hold: n("hold"), queued: records.filter((r) => r.queued).length, treasury }, null, 2));
   if (!existsSync("./data/ap")) process.exitCode = 1;
 }

@@ -28,7 +28,9 @@
     "llm-ping": "tsx src/llm.ts",
     "llm-models": "tsx src/llm-models.ts",
     "ap": "tsx src/ap-agent.ts",
-    "report": "tsx src/report.ts"
+    "report": "tsx src/report.ts",
+    "tts": "tsx src/tts.ts",
+    "transcribe": "tsx src/transcribe.ts"
   },
   "dependencies": {
     "commander": "^12.1.0",

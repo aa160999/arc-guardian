@@ -37,3 +37,12 @@ vendors:
     riskTier: low
     caps: { perTx: 15, monthly: 15 }
     notes: proxy plan, usually settled from prepaid credits
+
+  - id: eurc-test-vendor
+    name: EURC settlement test (not a real vendor)
+    aliases: [eurc test]
+    address: "0xbf7fe928ff4c7f02c68708ff9f368b4e62937a78"   # 3rd agent wallet in this account
+    riskTier: low
+    currencies: [EURC]
+    caps: { perTx: 5, monthly: 5 }
+    notes: exists only to exercise the USDC→EURC swap + EURC transfer path on testnet; payments to it are labelled test-* and excluded from traction numbers

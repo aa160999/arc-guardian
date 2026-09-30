@@ -75,25 +75,59 @@ export function explorerTxUrl(chain: string, txHash: string): string | undefined
  * after `circle wallet login` (email OTP). The CLI is the supported way for an
  * agent to use that session without ever seeing key material.
  */
+/** Token contracts per chain (from `circle contract address`). USDC is native on Arc and needs no --token. */
+export const TOKEN_CONTRACTS: Record<string, Record<string, string>> = {
+  "ARC-TESTNET": { EURC: "0x89B50855Aa3bE2F677cD6303Cec089B5F319D72a" },
+};
+
 export class CircleCliExecutor implements Executor {
   readonly name = "circle-cli";
   constructor(private readonly bin: string = "circle") {}
 
+  private async run(args: string[]): Promise<{ raw: unknown; data: Record<string, unknown> | undefined }> {
+    const { stdout } = await execFileP(this.bin, args, { env: { ...process.env, CIRCLE_ACCEPT_TERMS: "1" }, maxBuffer: 1 << 20 });
+    const raw = safeJson(stdout);
+    const data = (raw as { data?: Record<string, unknown> })?.data;
+    return { raw, data: data && typeof data === "object" ? data : undefined };
+  }
+
   async execute(d: Decision, opts: ExecuteOpts): Promise<ExecutionResult> {
     if (d.verdict !== "allow") throw new Error("refusing to execute a non-allow decision");
     if (!d.to) throw new Error("decision has no recipient");
-    const args = ["wallet", "transfer", d.to, "--amount", String(d.amount), "--address", opts.from, "--chain", opts.chain, "--output", "json"];
-    if (d.currency !== "USDC") {
-      // --token wants a contract address; resolve via `circle contract address` before enabling EURC here.
-      throw new Error(`currency ${d.currency} not wired for CLI executor yet (needs --token <contract>)`);
-    }
     const executedAt = opts.now.toISOString();
+    const steps: Array<{ step: string; raw: unknown }> = [];
     try {
-      const { stdout } = await execFileP(this.bin, args, { env: { ...process.env, CIRCLE_ACCEPT_TERMS: "1" }, maxBuffer: 1 << 20 });
-      const raw = safeJson(stdout);
-      const data = (raw as Partial<CircleTransferResponse>)?.data;
-      if (!data || typeof data !== "object" || typeof data.id !== "string") {
-        return { intentId: d.intentId, ok: false, error: "unexpected circle cli output (no data.id)", raw, executedAt };
+      const transferArgs = ["wallet", "transfer", d.to, "--amount", String(d.amount), "--address", opts.from, "--chain", opts.chain, "--output", "json"];
+      let swapTxHash: string | undefined;
+      if (d.currency !== "USDC") {
+        const token = TOKEN_CONTRACTS[opts.chain]?.[d.currency];
+        if (!token) throw new Error(`no ${d.currency} contract known for ${opts.chain}`);
+        // Treasury holds USDC: quote, then swap just enough USDC into the vendor's currency (stop-limit = exact amount owed).
+        const q = await this.run(["wallet", "swap", "USDC", "1", d.currency, "--chain", opts.chain, "--quote", "--output", "json"]);
+        steps.push({ step: "quote", raw: q.raw });
+        const rate = Number(q.data?.estimatedOutput);
+        if (!(rate > 0)) throw new Error("swap quote returned no rate");
+        // Observed on Arc testnet 2026-10-01: routing succeeds for whole-number sell amounts with an explicit
+        // stop-limit (e.g. "USDC 1 EURC 0.8") and fails ("No route available") for fractional ones (3.8, 3.79).
+        // So: sell a whole number of USDC with ≥10% headroom, stop-limit = exactly what is owed, slippage sized to match.
+        const sell = Math.max(1, Math.ceil((d.amount / rate) * 1.1));
+        const expected = sell * rate;
+        const slippageBps = Math.min(9000, Math.ceil((1 - d.amount / expected) * 10000) + 100);
+        const sw = await this.run(["wallet", "swap", "USDC", String(sell), d.currency, String(d.amount), "--address", opts.from, "--chain", opts.chain, "--slippage-bps", String(slippageBps), "--idempotency-key", `swap-${d.intentId}`, "--output", "json"]);
+        steps.push({ step: "swap", raw: sw.raw });
+        // shape seen 2026-10-01: { data: { transactions: [ {approve…}, {swap…} ] } } — last one is the swap itself
+        const txs = (sw.data?.transactions as Array<{ txHash?: string; state?: string }> | undefined) ?? [];
+        const last = txs[txs.length - 1];
+        swapTxHash = last?.txHash ?? (typeof sw.data?.txHash === "string" ? (sw.data.txHash as string) : undefined);
+        const swState = String(last?.state ?? sw.data?.state ?? "");
+        if (!/COMPLETE|CONFIRMED/.test(swState)) throw new Error(`swap ended in state ${swState || "unknown"}`);
+        transferArgs.push("--token", token);
+      }
+      const tr = await this.run(transferArgs);
+      steps.push({ step: "transfer", raw: tr.raw });
+      const data = tr.data as Partial<CircleTransferResponse["data"]> | undefined;
+      if (!data || typeof data.id !== "string") {
+        return { intentId: d.intentId, ok: false, error: "unexpected circle cli output (no data.id)", raw: steps, executedAt };
       }
       const terminalOk = data.state === "COMPLETE" || data.state === "CONFIRMED";
       return {
@@ -105,8 +139,9 @@ export class CircleCliExecutor implements Executor {
         networkFee: data.networkFee,
         confirmedAt: data.firstConfirmDate,
         explorerUrl: data.txHash ? explorerTxUrl(opts.chain, data.txHash) : undefined,
+        swapTxHash,
         error: terminalOk ? undefined : `transfer ended in state ${data.state}`,
-        raw,
+        raw: steps.length > 1 ? steps : tr.raw,
         executedAt,
       };
     } catch (err: unknown) {
@@ -115,7 +150,7 @@ export class CircleCliExecutor implements Executor {
         intentId: d.intentId,
         ok: false,
         error: (e.stderr || e.message || "circle cli failed").trim(),
-        raw: e.stdout ? safeJson(e.stdout) : undefined,
+        raw: steps.length ? steps : e.stdout ? safeJson(e.stdout) : undefined,
         executedAt,
       };
     }

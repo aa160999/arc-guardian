@@ -1,0 +1,122 @@
+{
+  "title": "Arc Guardian — Tameion Agents Hackathon demo",
+  "voice": "Kore",
+  "scenes": [
+    {
+      "id": "01-title",
+      "kind": "title",
+      "caption": "Arc Guardian",
+      "sub": "Spending guardrails + tamper-evident decision ledger for AI agents paying USDC on Arc",
+      "narration": "This is Arc Guardian: spending guardrails and a tamper-evident decision ledger for AI agents that pay in USDC on Arc."
+    },
+    {
+      "id": "02-problem",
+      "kind": "bullets",
+      "caption": "Give an agent a wallet and it will pay. The problem is what it pays.",
+      "bullets": [
+        "A re-sent invoice, paid twice",
+        "A crashed run, retried — paid twice",
+        "An \"urgent new supplier\" that is not in your vendor list",
+        "And a language model will always find a reason",
+        "Circle wallet policies exist on mainnet — on testnet there are none, and address caps don't know what an invoice is"
+      ],
+      "narration": "Give an agent a wallet and it will pay. The problem is what it pays: a re-sent invoice, a retried run, an urgent new supplier that isn't in your vendor list. And a language model will always find a reason. Circle's agent wallets have spending policies on mainnet, but on testnet there are none, and address caps don't know what an invoice is."
+    },
+    {
+      "id": "03-architecture",
+      "kind": "diagram",
+      "caption": "Money leaves through one door",
+      "narration": "So money leaves through one door. The agent proposes an intent. A deterministic policy engine, written by the owner and never editable by the model, evaluates it: known vendor, caps, duplicates, risk tier, approval threshold. Allow goes to the Circle agent wallet and settles on Arc. Hold waits for a human. Deny stops. Every step is appended to a hash-chained ledger."
+    },
+    {
+      "id": "04-invoices",
+      "kind": "invoices",
+      "caption": "Six real invoices from a one-person dev shop",
+      "narration": "Here are six real invoices from my own one-person dev shop: ChatGPT billed in Indonesian rupiah, and two proxy vendors. The reference AP agent reads them with Gemini, judges each one, and explains itself."
+    },
+    {
+      "id": "05-ap-run",
+      "kind": "terminal",
+      "caption": "npm run ap — the agent reads, judges, converts, queues",
+      "command": "npm run ap",
+      "output": [
+        "[ap] proxycheap-PC-625451.txt: Lietparkas, UAB USD 5.04 → pay_now 5.04 USDC (queued)",
+        "[ap] proxycheap-PC-652071.txt: Lietparkas, UAB USD 10.08 → pay_now 10.08 USDC (queued)",
+        "[ap] openai-3XLNQNBZ-0001.txt: OpenAI OpCo, LLC IDR 349000 → hold",
+        "[ap] webshare-INV-3230164.txt: Webshare Software USD 0 → skip",
+        "[ap] openai-3XLNQNBZ-0002.txt: OpenAI OpCo, LLC IDR 75000 → pay_now 4.18 USDC (queued)",
+        "[ap] openai-3XLNQNBZ-0003.txt: OpenAI OpCo, LLC IDR 75000 → pay_now 4.18 USDC (queued)",
+        "{ invoices: 6, pay_now: 4, skip: 1, hold: 1, queued: 4, balanceUsdc: 38.5 }"
+      ],
+      "notes": [
+        "Webshare → skip: \"credits applied, total 0, nothing to pay\"",
+        "OpenAI July → hold: \"first invoice from this vendor, two months overdue — a human should look\"",
+        "OpenAI Aug → pay: \"amount dropped 349,000 → 75,000 IDR, consistent with owner's note: plan changed Plus → Go\""
+      ],
+      "narration": "Webshare: already settled from prepaid credits, so skip. OpenAI July: first invoice on record and two months overdue, so hold for a human. August: the amount dropped from three hundred forty-nine thousand to seventy-five thousand rupiah, which matches the owner's note that the plan changed from Plus to Go, so pay. Each payable invoice is converted at the day's rate into USDC, checked against the treasury balance, oldest first, and queued."
+    },
+    {
+      "id": "06-guardian",
+      "kind": "terminal",
+      "caption": "Guardian decides. The model cannot talk past it.",
+      "command": "npm run worker",
+      "output": [
+        "[worker] inv-proxy-cheap-PC-625451: allow tx=0xed959f7fee114f6a173063f407aefc98c30da73203b662291b4933cd64abb9d7",
+        "[worker] inv-proxy-cheap-PC-652071: allow tx=0xed85b55125881cc2e8e689613c7f5a8030fd338790210e09c7fea533bd8fc1d8",
+        "[worker] inv-openai-3XLNQNBZ-0002: allow tx=0x0ddcb92f4781a60f582b453e34e6bec1ee8daf2981c5e151db8d0f3524ae7e68",
+        "[worker] inv-openai-3XLNQNBZ-0003: hold",
+        "    possible-duplicate → hold — same vendor + same amount (4.18 USDC) paid within 14d (intent inv-openai-3XLNQNBZ-0002)"
+      ],
+      "notes": [
+        "3 payments settle on Arc testnet, ~8 s each, gas paid in USDC",
+        "4th: the model said pay — Guardian says hold"
+      ],
+      "narration": "Three payments pass Guardian and settle on Arc testnet in under ten seconds each, with gas paid in USDC. The fourth is the same vendor and the same amount inside fourteen days. The model says pay. Guardian says hold: possible duplicate. The model cannot talk past this."
+    },
+    {
+      "id": "07-approval",
+      "kind": "terminal",
+      "caption": "A human lifts the hold — in one command, on the record",
+      "command": "guardian approve inv-openai-3XLNQNBZ-0003 --by ryan",
+      "output": [
+        "apr_QzFjy-mf0Cn3",
+        "",
+        "$ # agent resubmits the same intent with approvalToken",
+        "[worker] inv-openai-3XLNQNBZ-0003-approved: allow tx=0x119e09071ae386c5cc87dbc261d52cd5a928b0913024c912d625e134d8256219",
+        "    possible-duplicate → hold",
+        "    approval → allow — hold lifted by recorded approval apr_QzFjy-mf0Cn3"
+      ],
+      "notes": [
+        "Approval is written to the ledger and bound to (recipient, amount, currency)",
+        "Change the amount → token is void. Approval never lifts a deny."
+      ],
+      "narration": "A human approves, in one command. The approval is written to the ledger and bound to the exact recipient, amount and currency. Change the amount and the token is void. Resubmitted, allowed, settled."
+    },
+    {
+      "id": "08-ledger",
+      "kind": "screenshot",
+      "image": "shot-ledger.png",
+      "caption": "aa160999.github.io/arc-guardian — everything the agent saw and concluded",
+      "narration": "Everything the agent saw and concluded is on a public page: the reasoning, the rule hits, the transactions, and a button that recomputes every hash in your own browser. Edit one line after the fact and the chain breaks at that entry."
+    },
+    {
+      "id": "09-adoption",
+      "kind": "bullets",
+      "caption": "A library, a CLI, and a file-queue worker",
+      "bullets": [
+        "import { Guardian } from \"arc-guardian\"  — one door for any agent framework",
+        "guardian check | pay | approve | ledger verify",
+        "Drop an intent file into data/queue/ — even from a sandbox without the wallet session",
+        "Testnet gets the guardrail Circle policies don't yet provide; on mainnet it stacks on top of them"
+      ],
+      "narration": "Guardian is a library, a CLI, and a file-queue worker. Any agent, even one running in a sandbox without the wallet session, drops an intent file and gets a decision back. Testnet gets the guardrail Circle policies don't yet provide; on mainnet it stacks on top of them."
+    },
+    {
+      "id": "10-close",
+      "kind": "title",
+      "caption": "Arc Guardian",
+      "sub": "github.com/aa160999/arc-guardian  ·  aa160999.github.io/arc-guardian  ·  MIT",
+      "narration": "Arc Guardian. Open source, MIT. Give the agent the keys, behind a door it cannot talk its way through."
+    }
+  ]
+}
