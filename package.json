@@ -27,7 +27,8 @@
     "worker": "tsx src/worker.ts",
     "llm-ping": "tsx src/llm.ts",
     "llm-models": "tsx src/llm-models.ts",
-    "ap": "tsx src/ap-agent.ts"
+    "ap": "tsx src/ap-agent.ts",
+    "report": "tsx src/report.ts"
   },
   "dependencies": {
     "commander": "^12.1.0",

@@ -48,6 +48,8 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env): Record<s
     "llm-ping": { argv: ["npm", "run", "--silent", "llm-ping"], timeoutMs: 60_000, description: "check LLM key/model from .env (key never printed)" },
     "ap-run": { argv: ["npm", "run", "--silent", "ap"], timeoutMs: 600_000, description: "AP agent: read data/invoices, decide, queue intents" },
     "ap-dry": { argv: ["npm", "run", "--silent", "ap", "--", "--dry"], timeoutMs: 600_000, description: "AP agent decisions only, no intents" },
+    "report": { argv: ["npm", "run", "--silent", "report"], description: "regenerate docs/index.html from ledger + AP records" },
+    "gh-pages-enable": { argv: ["gh", "api", "-X", "POST", "repos/aa160999/arc-guardian/pages", "-f", "source[branch]=main", "-f", "source[path]=/docs"], description: "enable GitHub Pages from /docs on main" },
     "npm-build": { argv: ["npm", "run", "--silent", "build"], timeoutMs: 300_000, description: "tsc build" },
     "guardian-ledger-verify": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "verify"], description: "verify ledger chain" },
     "guardian-ledger-summary": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "summary"], description: "ledger summary" },

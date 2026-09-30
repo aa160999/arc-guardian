@@ -5,6 +5,7 @@
 
 # runtime data (ledger is per-deployment; commit only examples/)
 data/
+!docs/
 *.ledger.jsonl
 
 # build / deps
