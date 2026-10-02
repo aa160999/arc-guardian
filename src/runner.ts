@@ -172,7 +172,7 @@ export function runArgv(argv: string[], cwd: string, timeoutMs: number): Promise
   return new Promise((resolve) => {
     // Children re-read .env themselves; don't hand them the values this long-running worker loaded at startup.
     const env: NodeJS.ProcessEnv = { ...process.env, PATH: toolPath(), CIRCLE_ACCEPT_TERMS: "1", GIT_TERMINAL_PROMPT: "0" };
-    for (const k of Object.keys(env)) if (k.startsWith("LLM_")) delete env[k];
+    for (const k of Object.keys(env)) if (k.startsWith("LLM_") || k.startsWith("TTS_")) delete env[k];
     execFile(argv[0], argv.slice(1), { cwd, timeout: timeoutMs, maxBuffer: 8 << 20, env }, (err, stdout, stderr) => {
       const e = err as (NodeJS.ErrnoException & { code?: number | string; killed?: boolean }) | null;
       const exitCode = e ? (typeof e.code === "number" ? e.code : e.killed ? null : 1) : 0;

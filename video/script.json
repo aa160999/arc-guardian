@@ -20,13 +20,13 @@
         "And a language model will always find a reason",
         "Circle wallet policies exist on mainnet. On testnet there are none — and an address cap does not know what an invoice is."
       ],
-      "narration": "Give an agent a wallet and it will pay. The problem is what it pays: an invoice that gets sent twice, a run that crashes and retries, a new supplier that is not on your vendor list. And a language model will always find a reason. Circle's wallet policies exist on mainnet. On testnet there are none, and an address cap does not know what an invoice is."
+      "narration": "Give an agent a wallet and it will pay. The problem is what it pays: an invoice sent twice, a run that crashes and retries, a new supplier that is not on your vendor list. And a language model will always find a reason. On testnet there are no Circle wallet policies at all, and an address cap does not know what an invoice is."
     },
     {
       "id": "03-architecture",
       "kind": "diagram",
       "caption": "Money leaves through one door",
-      "narration": "So money leaves through one door. The agent proposes a payment. A deterministic policy engine, written by the owner and never editable by the model, checks it: known vendor, spending caps, duplicates, risk tier, approval threshold. An allow goes to the Circle agent wallet and settles on Arc. A hold waits for a person. A deny stops the payment. Every step is appended to a hash-chained ledger."
+      "narration": "So money leaves through one door. The agent proposes a payment. A deterministic policy engine, written by the owner, never by the model, checks the vendor, the caps, duplicates, risk tier, approval threshold. Allow goes to the Circle agent wallet and settles on Arc. Hold waits for a person. Deny stops it. Every step is appended to a hash-chained ledger."
     },
     {
       "id": "04-invoices",
@@ -52,7 +52,7 @@
         "OpenAI July → hold: \"registry lists this vendor in USDC, invoice is in IDR; the plan-change note does not cover July — human review\"",
         "OpenAI Aug → pay: \"decreased due to a verified plan change from Plus to Go, as noted in the registry\""
       ],
-      "narration": "Webshare: already paid, amount due is zero, so skip. The July ChatGPT invoice: the registry lists this vendor in USDC, the invoice is in rupiah, and the owner's note about the plan change does not cover July, so hold for a person. August: the amount decreased because of a verified plan change from Plus to Go, as noted in the registry, so pay. Each payable invoice is converted at the day's rate into USDC, checked against the treasury balance, oldest first, and then queued for payment."
+      "narration": "Webshare: already paid, amount due is zero, so skip. July: the registry lists this vendor in USDC, the invoice is in rupiah, and the plan-change note does not cover July, so hold for a person. August: the amount decreased because of a verified plan change from Plus to Go, so pay. Payable invoices are converted into USDC, checked against the balance, and queued oldest first."
     },
     {
       "id": "06-guardian",
@@ -75,7 +75,7 @@
         "August sent again, same invoice number → deny: already settled",
         "September: a new invoice, but same amount as the one just paid → hold for a person"
       ],
-      "narration": "Three payments pass Guardian and settle on Arc testnet, gas paid in USDC. Now the vendor sends the August invoice again. Same invoice number. The model says pay. Guardian denies it: this invoice is already settled. Then September arrives. It is a new invoice, but the same amount as the one just paid, so Guardian holds it for a person. The model cannot talk past either rule."
+      "narration": "Three payments pass Guardian and settle on Arc testnet, gas paid in USDC. Then the vendor sends August again, same invoice number. The model says pay. Guardian denies it: already settled. September is a new invoice, but the same amount as the one just paid, so Guardian holds it for a person. The model cannot talk past either rule."
     },
     {
       "id": "07-approval",
@@ -122,7 +122,7 @@
       "kind": "title",
       "caption": "One business — mine. Four invoices settled, 23.48 USDC, on Arc testnet.",
       "sub": "A library, a CLI, and a worker that watches a folder  ·  github.com/aa160999/arc-guardian  ·  MIT",
-      "narration": "Traction so far: one business, mine. Four invoices settled, twenty-three dollars in USDC, on Arc testnet. Guardian ships as a library, a CLI, and a worker that watches a folder, so any agent can use it. Arc Guardian. Give the agent the keys — behind a door it cannot talk its way through."
+      "narration": "Traction so far: one business, mine. Four invoices settled, twenty-three dollars in USDC, on Arc testnet. Guardian ships as a library, a CLI, and a worker that watches a folder. Arc Guardian. Give the agent the keys — behind a door it cannot talk its way through."
     }
   ]
 }
