@@ -80,7 +80,7 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env, profile: 
     "gh-pages-enable": { argv: ["gh", "api", "-X", "POST", "repos/aa160999/arc-guardian/pages", "-f", "source[branch]=main", "-f", "source[path]=/docs"], description: "enable GitHub Pages from /docs on main" },
     "tts": { argv: ["npm", "run", "--silent", "tts"], timeoutMs: 600_000, description: "narrate video/script.json with Gemini TTS → data/video/audio" },
     "chrome-shot-ledger": {
-      argv: ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--headless=new", "--disable-gpu", "--hide-scrollbars", "--virtual-time-budget=10000", "--window-size=1600,2400", "--screenshot=data/video/shot-ledger.png", "https://aa160999.github.io/arc-guardian/"],
+      argv: ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "--headless=new", "--disable-gpu", "--hide-scrollbars", "--virtual-time-budget=10000", "--window-size=1600,2400", "--screenshot=data/video/shot-ledger.png", "https://aa160999.github.io/arc-guardian/?verify=1"],
       timeoutMs: 60_000,
       description: "headless Chrome screenshot of the live ledger page → data/video/shot-ledger.png",
     },

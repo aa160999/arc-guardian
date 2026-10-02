@@ -1,0 +1,32 @@
+# 旁白文本 —— 每段生成一个音频，文件名用方括号里的名字，放到 data/video/audio/
+# 全部用同一个声音（建议 Kore）。只粘贴引号里的英文，别带文件名。
+
+[01-title.wav]
+This is Arc Guardian: spending guardrails and a tamper-evident decision ledger for AI agents that pay in USDC on Arc.
+
+[02-problem.wav]
+Give an agent a wallet and it will pay. The problem is what it pays: a re-sent invoice, a retried run, an urgent new supplier that isn't in your vendor list. And a language model will always find a reason. Circle's agent wallets have spending policies on mainnet, but on testnet there are none, and address caps don't know what an invoice is.
+
+[03-architecture.wav]
+So money leaves through one door. The agent proposes an intent. A deterministic policy engine, written by the owner and never editable by the model, evaluates it: known vendor, caps, duplicates, risk tier, approval threshold. Allow goes to the Circle agent wallet and settles on Arc. Hold waits for a human. Deny stops. Every step is appended to a hash-chained ledger.
+
+[04-invoices.wav]
+Here are six real invoices from my own one-person dev shop: ChatGPT billed in Indonesian rupiah, and two proxy vendors. The reference AP agent reads them with Gemini, judges each one, and explains itself.
+
+[05-ap-run.wav]
+Webshare: already settled from prepaid credits, so skip. OpenAI July: first invoice on record and two months overdue, so hold for a human. August: the amount dropped from three hundred forty-nine thousand to seventy-five thousand rupiah, which matches the owner's note that the plan changed from Plus to Go, so pay. Each payable invoice is converted at the day's rate into USDC, checked against the treasury balance, oldest first, and queued.
+
+[06-guardian.wav]
+Three payments pass Guardian and settle on Arc testnet in under ten seconds each, with gas paid in USDC. The fourth is the same vendor and the same amount inside fourteen days. The model says pay. Guardian says hold: possible duplicate. The model cannot talk past this.
+
+[07-approval.wav]
+A human approves, in one command. The approval is written to the ledger and bound to the exact recipient, amount and currency. Change the amount and the token is void. Resubmitted, allowed, settled.
+
+[08-ledger.wav]
+Everything the agent saw and concluded is on a public page: the reasoning, the rule hits, the transactions, and a button that recomputes every hash in your own browser. Edit one line after the fact and the chain breaks at that entry.
+
+[09-adoption.wav]
+Guardian is a library, a CLI, and a file-queue worker. Any agent, even one running in a sandbox without the wallet session, drops an intent file and gets a decision back. Testnet gets the guardrail Circle policies don't yet provide; on mainnet it stacks on top of them.
+
+[10-close.wav]
+Arc Guardian. Open source, MIT. Give the agent the keys, behind a door it cannot talk its way through.

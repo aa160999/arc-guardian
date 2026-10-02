@@ -76,9 +76,9 @@ a{color:var(--acc);text-decoration:none}a:hover{text-decoration:underline}
 .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
 h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:36px 0 12px;color:#c9d0e0}
 .sub{color:var(--mut);font-size:13px}.sub code{font-family:var(--mono);font-size:12px}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:22px 0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:22px 0}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.card .k{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em}.card .v{font-size:26px;font-weight:600;margin-top:4px}
+.card .k{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em}.card .v{font-size:26px;font-weight:600;margin-top:4px;white-space:nowrap}
 .card .v small{font-size:13px;color:var(--mut);font-weight:400}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;font-size:13.5px}th{color:var(--mut);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
@@ -115,6 +115,8 @@ details summary{cursor:pointer;color:var(--mut);font-size:13px}
 
 <h2>Ledger timeline</h2>
 <table id="ledger"><thead><tr><th>#</th><th>Time (UTC)</th><th>Kind</th><th>Intent</th><th>Vendor · amount</th><th>Verdict / result</th><th>Rules</th></tr></thead><tbody></tbody></table>
+<details style="margin-top:14px"><summary>Test entries (intents named <code>test-*</code>; excluded from the numbers above)</summary>
+<table id="ledger-test" style="margin-top:10px"><thead><tr><th>#</th><th>Time (UTC)</th><th>Kind</th><th>Intent</th><th>Vendor · amount</th><th>Verdict / result</th><th>Rules</th></tr></thead><tbody></tbody></table></details>
 
 <h2>Policy the agent cannot edit</h2>
 <table id="policy"><thead><tr><th>Vendor</th><th>Risk</th><th>Caps (USDC)</th><th>Owner notes</th></tr></thead><tbody></tbody></table>
@@ -146,8 +148,8 @@ $('#ap tbody').innerHTML = apRows.map(r => {
   return '<tr><td class="mono">'+esc(e.invoiceId)+'<br><span class="sub">'+esc(e.issueDate)+'</span></td><td>'+esc(e.vendorName)+'<br><span class="sub">'+esc(e.description)+'</span></td><td class="mono">'+esc(e.currency)+' '+esc(e.amountDue)+(e.alreadyPaid?'<br><span class="sub">already paid</span>':'')+'</td><td><span class="pill '+act+'">'+label+'</span><br><span class="sub">confidence '+j.confidence+'</span></td><td class="reason">'+esc(j.reasoning)+(j.anomalies&&j.anomalies.length?'<br><span class="anom">⚠ '+j.anomalies.map(esc).join(' · ')+'</span>':'')+'</td><td class="mono">'+(r.usdc!=null?r.usdc+' USDC<br>':'')+(r.intentId?'<span class="sub">'+esc(r.intentId)+'</span>':r.skippedBecause?'<span class="sub">'+esc(r.skippedBecause)+'</span>':'')+'</td></tr>';
 }).join('');
 
-// ledger timeline
-$('#ledger tbody').innerHTML = D.ledger.map(e => {
+// ledger timeline (test-* entries go to the collapsed table)
+const rowHtml = e => {
   const t = e.ts.replace('T',' ').slice(0,19);
   if (e.kind==='decision') {
     const d=e.decision;
@@ -161,7 +163,10 @@ $('#ledger tbody').innerHTML = D.ledger.map(e => {
     return '<tr><td>'+e.seq+'</td><td class="mono">'+t+'</td><td class="kind">approval</td><td class="mono">'+esc(e.intentId)+'</td><td></td><td><span class="pill hold">approved by '+esc(e.approver)+'</span></td><td class="hit">token '+esc(e.approvalToken)+(e.note?' — '+esc(e.note):'')+'</td></tr>';
   }
   return '';
-}).join('');
+};
+const intentOf = e => e.kind==='decision' ? e.intent.intentId : e.kind==='execution' ? e.result.intentId : e.intentId;
+$('#ledger tbody').innerHTML = D.ledger.filter(e => !/^test-/.test(intentOf(e))).map(rowHtml).join('');
+$('#ledger-test tbody').innerHTML = D.ledger.filter(e => /^test-/.test(intentOf(e))).map(rowHtml).join('');
 
 // policy
 $('#policy tbody').innerHTML = D.vendors.map(v => '<tr><td><b>'+esc(v.id)+'</b><br><span class="sub">'+esc(v.name)+'</span></td><td>'+esc(v.riskTier)+'</td><td class="mono">'+esc(JSON.stringify(v.caps))+'</td><td class="sub">'+esc(v.notes)+'</td></tr>').join('');
@@ -182,6 +187,7 @@ $('#verify').onclick = async () => {
   }
   out.innerHTML='<span class="ok">✓ '+D.ledger.length+' entries verified · head '+prev.slice(0,16)+'…</span>'; $('#verify').disabled=false;
 };
+if (new URLSearchParams(location.search).get('verify') === '1') $('#verify').click();
 </script></body></html>`;
 }
 

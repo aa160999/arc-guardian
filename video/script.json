@@ -90,7 +90,9 @@
         "Approval is written to the ledger and bound to (recipient, amount, currency)",
         "Change the amount → token is void. Approval never lifts a deny."
       ],
-      "narration": "A human approves, in one command. The approval is written to the ledger and bound to the exact recipient, amount and currency. Change the amount and the token is void. Resubmitted, allowed, settled."
+      "narration": "A human approves, in one command. The approval is written to the ledger and bound to the exact recipient, amount and currency. Change the amount and the token is void. Resubmitted, allowed, settled.",
+      "image": "shot-explorer.png",
+      "imageAt": 6
     },
     {
       "id": "08-ledger",

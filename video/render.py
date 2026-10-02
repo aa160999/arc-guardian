@@ -167,8 +167,9 @@ def scene_invoices(s):
         return im
     return paint
 
-def scene_terminal(s):
+def scene_terminal(s, shots=None):
     cmd = s["command"]; out = s["output"]; notes = s.get("notes", [])
+    inset = (shots or {}).get(s.get("image", "")); inset_at = s.get("imageAt", 6)
     def paint(t):
         im, d = base(s["caption"])
         d.rounded_rectangle([80, 130, 1840, 660], radius=16, fill=(6, 8, 12), outline=LINE, width=3)
@@ -187,9 +188,16 @@ def scene_terminal(s):
             d.text((110, y), ln[:118], font=F_MONO_S, fill=col); y += 34
         y = 700
         t_notes = t_lines - 0.45 * len(out)
+        show_inset = inset is not None and t >= inset_at
+        note_w = 1000 if show_inset else 1840
         for i, n in enumerate(notes[: max(0, 1 + int(t_notes / 2.5))]):
-            d.rounded_rectangle([80, y, 1840, y + 56], radius=10, fill=CARD, outline=LINE, width=2)
+            d.rounded_rectangle([80, y, note_w, y + 56], radius=10, fill=CARD, outline=LINE, width=2)
             d.text((104, y + 12), n, font=F_SMALL, fill=FG); y += 68
+        if show_inset:
+            # real explorer page, cropped to the "Transaction details" card, slides in from the right
+            crop = inset.crop((230, 100, 1600, 900)); h = 330; w = int(crop.width * h / crop.height)
+            sc = crop.resize((w, h)); slide = int(min(1, (t - inset_at) / 0.6) * (w + 40))
+            im.paste(sc, (W - slide, 690)); d.rectangle([W - slide, 690, W - slide + w, 690 + h], outline=ACC, width=3)
         return im
     return paint
 
@@ -216,7 +224,7 @@ PAINTERS = {"title": scene_title, "bullets": scene_bullets, "diagram": scene_dia
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--script", default="video/script.json"); ap.add_argument("--audio", default="data/video/audio")
     ap.add_argument("--shots", default="data/video"); ap.add_argument("--out", default="/tmp/av"); ap.add_argument("--final", default="data/video/arc-guardian-demo.mp4")
-    ap.add_argument("--only", default=None); a = ap.parse_args()
+    ap.add_argument("--only", default=None); ap.add_argument("--tempo", type=float, default=1.0, help="speed up narration (atempo)"); ap.add_argument("--pad", type=float, default=0.6); a = ap.parse_args()
     script = json.load(open(a.script)); shots = {}
     for f in ("shot-ledger.png", "shot-explorer.png"):
         p = os.path.join(a.shots, f)
@@ -225,16 +233,16 @@ def main():
     for s in script["scenes"]:
         if a.only and s["id"] != a.only: continue
         wav = os.path.join(a.audio, s["id"] + ".wav"); has_audio = os.path.exists(wav)
-        dur = wav_seconds(wav) + 0.6 if has_audio else max(6.0, len(s["narration"].split()) / 2.6 + 0.8)
-        paint = scene_screenshot(s, shots) if s["kind"] == "screenshot" else PAINTERS[s["kind"]](s)
-        segs = sub_segments(s["narration"], dur - 0.6)
+        dur = wav_seconds(wav) / a.tempo + a.pad if has_audio else max(6.0, len(s["narration"].split()) / (2.6 * a.tempo) + a.pad)
+        paint = scene_screenshot(s, shots) if s["kind"] == "screenshot" else scene_terminal(s, shots) if s["kind"] == "terminal" else PAINTERS[s["kind"]](s)
+        segs = sub_segments(s["narration"], dur - a.pad)
         fdir = os.path.join(a.out, "frames", s["id"]); shutil.rmtree(fdir, ignore_errors=True); os.makedirs(fdir)
         n = int(dur * FPS)
         for i in range(n):
             t = i / FPS; im = paint(t); subtitle(im, sub_at(segs, t)); im.save(os.path.join(fdir, "f%05d.png" % i), compress_level=1)
         clip = os.path.join(a.out, s["id"] + ".mp4")
         cmd = ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS), "-i", os.path.join(fdir, "f%05d.png")]
-        if has_audio: cmd += ["-i", wav, "-c:a", "aac", "-b:a", "128k"]
+        if has_audio: cmd += ["-i", wav, "-filter:a", "atempo=%.3f" % a.tempo, "-c:a", "aac", "-b:a", "128k"]
         else: cmd += ["-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-c:a", "aac"]
         cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30", "-shortest" if has_audio else "-t", str(dur) if not has_audio else "", clip]
         cmd = [c for c in cmd if c != ""]
