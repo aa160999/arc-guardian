@@ -78,7 +78,7 @@ h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:36px 0 12px;color:#c9d
 .sub{color:var(--mut);font-size:13px}.sub code{font-family:var(--mono);font-size:12px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin:22px 0}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
-.card .k{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em}.card .v{font-size:26px;font-weight:600;margin-top:4px;white-space:nowrap}
+.card .k{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em}.card .v{font-size:26px;font-weight:600;margin-top:4px;white-space:nowrap}.card .v.dec{font-size:22px}
 .card .v small{font-size:13px;color:var(--mut);font-weight:400}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
 th,td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left;font-size:13.5px}th{color:var(--mut);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
@@ -101,10 +101,10 @@ details summary{cursor:pointer;color:var(--mut);font-size:13px}
 <div class="cards">
   <div class="card"><div class="k">Payments settled</div><div class="v" id="c-settled"></div></div>
   <div class="card"><div class="k">USDC moved</div><div class="v" id="c-moved"></div></div>
-  <div class="card"><div class="k">Decisions</div><div class="v" id="c-dec"></div></div>
+  <div class="card"><div class="k">Decisions</div><div class="v dec" id="c-dec"></div></div>
   <div class="card"><div class="k">Ledger entries</div><div class="v" id="c-entries"></div></div>
   <div class="card"><div class="k">Hash chain</div><div class="v" id="c-chain"></div></div>
-  <div class="card"><div class="k">Treasury (wallet + Gateway)</div><div class="v" id="c-treasury"></div></div>
+  <div class="card" id="card-treasury"><div class="k">Treasury (wallet + Gateway)</div><div class="v" id="c-treasury"></div></div>
 </div>
 
 <p><button id="verify">Verify chain in this browser</button><span id="verify-out"></span></p>
@@ -136,7 +136,7 @@ $('#c-moved').innerHTML = D.summary.usdcMoved + ' <small>USDC</small>';
 $('#c-dec').innerHTML = D.summary.decisions.allow+' <small>allow</small> · '+D.summary.decisions.hold+' <small>hold</small> · '+D.summary.decisions.deny+' <small>deny</small>';
 $('#c-entries').textContent = D.summary.entries;
 $('#c-chain').innerHTML = D.summary.chainOk ? '<span class="ok">intact</span>' : '<span class="bad">BROKEN</span>';
-$('#c-treasury').innerHTML = D.summary.treasury ? D.summary.treasury.walletUsdc+' <small>USDC wallet</small> + '+D.summary.treasury.gatewayUsdc+' <small>in Gateway</small>' : '<small>n/a</small>';
+if (D.summary.treasury) $('#c-treasury').innerHTML = D.summary.treasury.walletUsdc+' <small>USDC wallet</small> + '+D.summary.treasury.gatewayUsdc+' <small>in Gateway</small>'; else $('#card-treasury').remove();
 if (D.summary.testPayments) $('#c-settled').innerHTML += ' <small>+ '+D.summary.testPayments+' test</small>';
 
 // AP judgements

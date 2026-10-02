@@ -79,19 +79,23 @@ def sub_at(segs, t):
 def scene_title(s):
     def paint(t):
         im = Image.new("RGB", (W, H), BG); d = ImageDraw.Draw(im)
-        title = s["caption"]; tw = d.textlength(title, font=F_TITLE)
-        d.text(((W - tw) / 2, 380), title, font=F_TITLE, fill=FG)
-        d.rectangle([(W - 160) / 2, 500, (W + 160) / 2, 506], fill=ACC)
+        title = s["caption"]
+        tf = F_TITLE if d.textlength(title, font=F_TITLE) <= W - 200 else font(56, bold=True)
+        lines = wrap(d, title, tf, W - 240); y = 380 - (len(lines) - 1) * 40
+        for ln in lines:
+            tw = d.textlength(ln, font=tf); d.text(((W - tw) / 2, y), ln, font=tf, fill=FG); y += tf.size + 14
+        d.rectangle([(W - 160) / 2, y + 16, (W + 160) / 2, y + 22], fill=ACC); y += 56
         for i, ln in enumerate(wrap(d, s.get("sub", ""), F_BODY, W - 400)):
-            tw = d.textlength(ln, font=F_BODY); d.text(((W - tw) / 2, 540 + i * 44), ln, font=F_BODY, fill=MUT)
-        d.text((48, H - 60), "Tameion Agents Hackathon · Canteen × Circle · Arc testnet", font=F_SMALL, fill=MUT)
+            tw = d.textlength(ln, font=F_BODY); d.text(((W - tw) / 2, y + i * 44), ln, font=F_BODY, fill=MUT)
+        d.text((48, 40), "Tameion Agents Hackathon · Canteen × Circle · Arc testnet", font=F_SMALL, fill=MUT)
         return im
     return paint
 
-def scene_bullets(s):
+def scene_bullets(s, dur=None):
+    every = max(2.0, ((dur or 20) * 0.8) / max(1, len(s["bullets"])))
     def paint(t):
         im, d = base(s["caption"])
-        n_show = min(len(s["bullets"]), 1 + int(t / 3.2))  # reveal one bullet every ~3s
+        n_show = min(len(s["bullets"]), 1 + int(t / every))
         y = 200
         for i, b in enumerate(s["bullets"][:n_show]):
             d.ellipse([120, y + 14, 138, y + 32], fill=ACC)
@@ -167,8 +171,12 @@ def scene_invoices(s):
         return im
     return paint
 
-def scene_terminal(s, shots=None):
+def scene_terminal(s, shots=None, dur=None):
     cmd = s["command"]; out = s["output"]; notes = s.get("notes", [])
+    # pace: typing, then lines + notes spread over ~70% of the scene so the picture keeps moving with the voice
+    typing = len(cmd) / 18 + 0.4
+    budget = max(4.0, (dur or 20) * 0.7 - typing)
+    step = budget / max(1, len(out) + len(notes))
     inset = (shots or {}).get(s.get("image", "")); inset_at = s.get("imageAt", 6)
     def paint(t):
         im, d = base(s["caption"])
@@ -179,7 +187,7 @@ def scene_terminal(s, shots=None):
         d.text((110, 196), "$ " + cmd[:n_chars] + ("▌" if n_chars < len(cmd) else ""), font=F_MONO, fill=FG)
         t_lines = t - len(cmd) / 18 - 0.4
         y = 250
-        for ln in out[: max(0, int(t_lines / 0.45))]:
+        for ln in out[: max(0, int(t_lines / step))]:
             col = FG
             if "→ hold" in ln or ln.strip().endswith(": hold") or "possible-duplicate → hold" in ln: col = HOLD
             elif "allow" in ln or "pay_now" in ln or "(queued)" in ln: col = OK
@@ -187,10 +195,10 @@ def scene_terminal(s, shots=None):
             elif "approval → allow" in ln: col = OK
             d.text((110, y), ln[:118], font=F_MONO_S, fill=col); y += 34
         y = 700
-        t_notes = t_lines - 0.45 * len(out)
+        t_notes = t_lines - step * len(out)
         show_inset = inset is not None and t >= inset_at
         note_w = 1000 if show_inset else 1840
-        for i, n in enumerate(notes[: max(0, 1 + int(t_notes / 2.5))]):
+        for i, n in enumerate(notes[: max(0, 1 + int(t_notes / step))]):
             d.rounded_rectangle([80, y, note_w, y + 56], radius=10, fill=CARD, outline=LINE, width=2)
             d.text((104, y + 12), n, font=F_SMALL, fill=FG); y += 68
         if show_inset:
@@ -203,23 +211,27 @@ def scene_terminal(s, shots=None):
 
 def scene_screenshot(s, shots):
     img = shots.get(s["image"])
+    if img is not None and s.get("crop"): img = img.crop(tuple(s["crop"]))
     def paint(t):
         im, d = base(s["caption"])
         if img is None:
             d.text((120, 400), "(screenshot missing: %s)" % s["image"], font=F_H2, fill=DENY); return im
-        # fit width, slow vertical pan
-        scale = (W - 160) / img.width
-        sc = img.resize((W - 160, int(img.height * scale)))
-        view_h = H - 96 - 140
+        # fit inside the area above the subtitle band; optional slow vertical pan (off by default:
+        # eyes and ears should see the same thing)
+        view_h = H - 96 - 150
+        pan = s.get("pan", False)
+        scale = (W - 160) / img.width if pan else min((W - 160) / img.width, view_h / img.height)
+        sc = img.resize((int(img.width * scale), int(img.height * scale)))
         max_off = max(0, sc.height - view_h)
-        off = int(min(max_off, max(0, (t - 3) / 14) * max_off))
-        crop = sc.crop((0, off, sc.width, off + view_h))
-        im.paste(crop, (80, 116))
-        d.rectangle([80, 116, W - 80, 116 + view_h], outline=LINE, width=3)
+        off = int(min(max_off, max(0, (t - 3) / 14) * max_off)) if pan else 0
+        crop = sc.crop((0, off, sc.width, min(sc.height, off + view_h)))
+        x = (W - crop.width) // 2
+        im.paste(crop, (x, 116))
+        d.rectangle([x, 116, x + crop.width, 116 + crop.height], outline=LINE, width=3)
         return im
     return paint
 
-PAINTERS = {"title": scene_title, "bullets": scene_bullets, "diagram": scene_diagram, "invoices": scene_invoices, "terminal": scene_terminal}
+PAINTERS = {"title": scene_title, "bullets": lambda s: scene_bullets(s), "diagram": scene_diagram, "invoices": scene_invoices, "terminal": scene_terminal}
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("--script", default="video/script.json"); ap.add_argument("--audio", default="data/video/audio")
@@ -234,7 +246,7 @@ def main():
         if a.only and s["id"] != a.only: continue
         wav = os.path.join(a.audio, s["id"] + ".wav"); has_audio = os.path.exists(wav)
         dur = wav_seconds(wav) / a.tempo + a.pad if has_audio else max(6.0, len(s["narration"].split()) / (2.6 * a.tempo) + a.pad)
-        paint = scene_screenshot(s, shots) if s["kind"] == "screenshot" else scene_terminal(s, shots) if s["kind"] == "terminal" else PAINTERS[s["kind"]](s)
+        paint = scene_screenshot(s, shots) if s["kind"] == "screenshot" else scene_terminal(s, shots, dur) if s["kind"] == "terminal" else scene_bullets(s, dur) if s["kind"] == "bullets" else PAINTERS[s["kind"]](s)
         segs = sub_segments(s["narration"], dur - a.pad)
         fdir = os.path.join(a.out, "frames", s["id"]); shutil.rmtree(fdir, ignore_errors=True); os.makedirs(fdir)
         n = int(dur * FPS)
