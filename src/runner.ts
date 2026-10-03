@@ -77,6 +77,8 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env, profile: 
     "circle-status": { argv: ["circle", "wallet", "status", "--type", "agent"], description: "session status" },
   };
   const dev: Record<string, CmdSpec> = {
+    "npm-whoami": { argv: ["npm", "whoami"], description: "is npm logged in?" },
+    "npm-publish": { argv: ["npm", "publish", "--access", "public"], timeoutMs: 600_000, description: "publish this package to npm (runs prepublishOnly: typecheck + test + build)" },
     "gh-pages-enable": { argv: ["gh", "api", "-X", "POST", "repos/aa160999/arc-guardian/pages", "-f", "source[branch]=main", "-f", "source[path]=/docs"], description: "enable GitHub Pages from /docs on main" },
     "tts": { argv: ["npm", "run", "--silent", "tts"], timeoutMs: 600_000, description: "narrate video/script.json with Gemini TTS → data/video/audio" },
     "chrome-shot-ledger": {

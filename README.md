@@ -59,10 +59,18 @@ Circle stack used: **Agent Wallets** (custody, gas sponsored in USDC), **USDC** 
 
 Deny always beats hold; hold always beats allow. Approving is a human act: `guardian approve <intentId> --by <name>` runs in the owner's terminal and is deliberately **not** available through the file-driven runner — the agent that proposes payments can never approve its own holds.
 
+## Install
+
+```bash
+npm install arc-guardian        # library + `guardian` CLI
+# or, for your own agent in one line:
+import { Guardian } from "arc-guardian";
+```
+
 ## Quickstart (dry run, no wallet needed)
 
 ```bash
-npm install
+git clone https://github.com/aa160999/arc-guardian && cd arc-guardian && npm install
 cp policy.example.yaml policy.yaml         # edit vendors/caps for your business
 npm run guardian -- pay --dry-run examples/intent-anthropic-bill.json
 npm run guardian -- check examples/intent-unknown-recipient.json     # → deny

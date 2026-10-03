@@ -1,7 +1,7 @@
 {
   "name": "arc-guardian",
   "version": "0.1.0",
-  "description": "Spending guardrails + hash-chained decision ledger for AI agents that pay in USDC on Arc. Sits between the LLM and the Circle agent wallet.",
+  "description": "Spending guardrails + hash-chained decision ledger for AI agents that pay USDC/EURC on Arc. Sits between the LLM and the Circle agent wallet.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -30,7 +30,8 @@
     "ap": "tsx src/ap-agent.ts",
     "report": "tsx src/report.ts",
     "tts": "tsx src/tts.ts",
-    "transcribe": "tsx src/transcribe.ts"
+    "transcribe": "tsx src/transcribe.ts",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "commander": "^12.1.0",
@@ -42,5 +43,33 @@
     "tsx": "^4.19.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
+  },
+  "keywords": [
+    "arc",
+    "circle",
+    "usdc",
+    "eurc",
+    "agent",
+    "guardrails",
+    "spending-policy",
+    "ledger",
+    "accounts-payable",
+    "tameion"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aa160999/arc-guardian.git"
+  },
+  "homepage": "https://aa160999.github.io/arc-guardian/",
+  "bugs": {
+    "url": "https://github.com/aa160999/arc-guardian/issues"
+  },
+  "author": "aa160999",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   }
 }
