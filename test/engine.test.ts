@@ -83,7 +83,7 @@ describe("evaluate", () => {
     expect(d.verdict).toBe("hold");
   });
 
-  it("holds at or above the approval threshold", () => {
+  it("approval threshold: deny wins over hold when a cap is also exceeded; under caps it allows", () => {
     const d = evaluate(POLICY, Ledger.inMemory(), mk({ amount: 150 }), T0);
     expect(d.verdict).toBe("deny"); // 150 > vendor perTx 120 → deny wins over hold
     const d2 = evaluate(POLICY, Ledger.inMemory(), mk({ vendorId: undefined, to: "0x1111111111111111111111111111111111111111", amount: 119 }), T0);
@@ -145,19 +145,21 @@ describe("Guardian with ledger state", () => {
     expect(next.decision.verdict).toBe("allow");
   });
 
-  it("a recorded approval lifts a hold; a forged token is denied", async () => {
+  it("a recorded approval lifts a hold; a forged or stale token leaves it held", async () => {
     const { g } = guardian(() => T0);
     const held = await g.pay(mk({ intentId: "h1", vendorId: "shady", amount: 5 }));
     expect(held.decision.verdict).toBe("hold");
 
     const forged = await g.pay(mk({ intentId: "h1", vendorId: "shady", amount: 5, approvalToken: "apr_forged" }));
-    expect(forged.decision.verdict).toBe("deny");
+    expect(forged.decision.verdict).toBe("hold"); // a bad token lifts nothing and is recorded; the hold stands
+    expect(forged.execution).toBeUndefined();
 
     const token = g.approve("h1", "ryan", "known counterparty, one-off");
 
     // token is bound to (to, amount, currency): changing the amount after approval does not work
     const bumped = await g.pay(mk({ intentId: "h1", vendorId: "shady", amount: 50, approvalToken: token }));
-    expect(bumped.decision.verdict).toBe("deny");
+    expect(bumped.decision.verdict).toBe("hold");
+    expect(bumped.execution).toBeUndefined();
 
     const ok = await g.pay(mk({ intentId: "h1", vendorId: "shady", amount: 5, approvalToken: token }));
     expect(ok.decision.verdict).toBe("allow");
@@ -200,12 +202,60 @@ describe("regressions from review", () => {
     ledger.append({ kind: "execution", result: { intentId: "stuck", ok: false, providerId: "tx-123", state: "SENT", error: "transfer ended in state SENT", executedAt: T0.toISOString() } });
     const d = evaluate(POLICY, ledger, i, T0);
     expect(d.verdict).toBe("deny");
-    expect(d.hits[0].detail).toMatch(/submitted \(state SENT\)/);
+    expect(d.hits[0].detail).toMatch(/attempted \(state SENT/);
   });
 
   it("unknown vendorId with no address is denied even when policy says hold for unknown recipients", () => {
     const p = parsePolicy(`{ version: 1, business: x, unknownRecipient: hold, vendors: [] }`);
     const d = evaluate(p, Ledger.inMemory(), { intentId: "u", vendorId: "ghost", amount: 1, currency: "USDC", reason: "r" }, T0);
     expect(d.verdict).toBe("deny");
+  });
+});
+
+describe("second review — A-level regressions", () => {
+  it("any failed attempt under an intentId blocks replay (CLI may have broadcast before it errored)", () => {
+    const ledger = Ledger.inMemory();
+    const i = mk({ intentId: "flaky", amount: 5 });
+    ledger.append({ kind: "decision", intent: i, decision: evaluate(POLICY, ledger, i, T0) });
+    ledger.append({ kind: "execution", result: { intentId: "flaky", ok: false, error: "circle: ETIMEDOUT", state: "UNKNOWN", executedAt: T0.toISOString() } });
+    const d = evaluate(POLICY, ledger, i, T0);
+    expect(d.verdict).toBe("deny");
+    expect(d.hits[0].rule).toBe("idempotency");
+  });
+
+  it("an approval does not lift a hold that appeared after it was granted", async () => {
+    const { g } = guardian(() => T0);
+    // A is held only because the vendor is high-risk; the owner approves it
+    const heldA = await g.pay(mk({ intentId: "A", vendorId: "shady", amount: 7, invoiceId: "A-1" }));
+    expect(heldA.decision.hits.map((h) => h.rule)).toEqual(["risk-tier"]);
+    const tokenA = g.approve("A", "ryan");
+    // meanwhile B (same vendor, same amount) is held, approved, and settles
+    await g.pay(mk({ intentId: "B", vendorId: "shady", amount: 7, invoiceId: "B-1" }));
+    const tokenB = g.approve("B", "ryan");
+    const paidB = await g.pay(mk({ intentId: "B", vendorId: "shady", amount: 7, invoiceId: "B-1", approvalToken: tokenB }));
+    expect(paidB.execution?.ok).toBe(true);
+    // A now also trips possible-duplicate — the old token covered {risk-tier} only
+    const retry = await g.pay(mk({ intentId: "A", vendorId: "shady", amount: 7, invoiceId: "A-1", approvalToken: tokenA }));
+    expect(retry.decision.hits.map((h) => h.rule)).toContain("possible-duplicate");
+    expect(retry.decision.verdict).toBe("hold");
+    expect(retry.execution).toBeUndefined();
+    // a fresh approval, taken with both holds visible, does lift it
+    const tokenA2 = g.approve("A", "ryan", "checked: A-1 is a separate invoice");
+    const ok = await g.pay(mk({ intentId: "A", vendorId: "shady", amount: 7, invoiceId: "A-1", approvalToken: tokenA2 }));
+    expect(ok.decision.verdict).toBe("allow");
+  });
+
+  it("a vendorId that is not in the registry is denied even when a registered address is supplied", () => {
+    const d = evaluate(POLICY, Ledger.inMemory(), mk({ vendorId: "OpenAI", to: "0x1111111111111111111111111111111111111111", amount: 5 }), T0);
+    expect(d.verdict).toBe("deny");
+    expect(d.hits[0].rule).toBe("known-recipient");
+  });
+
+  it("invoice ids are compared on their alphanumeric core", async () => {
+    const { g } = guardian(() => T0);
+    await g.pay(mk({ intentId: "n1", amount: 12, invoiceId: "INV-1234" }));
+    const again = await g.pay(mk({ intentId: "n2", amount: 12, invoiceId: "#inv 1234" }));
+    expect(again.decision.verdict).toBe("deny");
+    expect(again.decision.hits.map((h) => h.rule)).toContain("duplicate-invoice");
   });
 });

@@ -62,8 +62,7 @@ export class Ledger {
   }
 
   append(e: NewEntry, now: Date = new Date()): LedgerEntry {
-    // Another process (e.g. `guardian approve`) may have appended since we loaded: never fork the chain.
-    if (this.path && existsSync(this.path) && statSync(this.path).size !== this.bytes) this.load();
+    this.reloadIfChanged(); // never fork the chain if another process appended since we loaded
     const seq = this.entries.length + 1;
     const prevHash = this.headHash;
     const body = { seq, ts: now.toISOString(), ...e, prevHash } as Omit<LedgerEntry, "hash">;
@@ -98,9 +97,14 @@ export class Ledger {
     return this.entries.filter((e): e is Extract<LedgerEntry, { kind: "execution" }> => e.kind === "execution").map((e) => e.result);
   }
 
-  /** Any execution that reached the provider (has an id or tx hash), successful or not. */
-  submittedExecutionFor(intentId: string): ExecutionResult | undefined {
-    return this.executions().find((r) => r.intentId === intentId && (r.providerId || r.txHash));
+  /** Any execution attempt for this intent, successful or not. */
+  attemptFor(intentId: string): ExecutionResult | undefined {
+    return this.executions().find((r) => r.intentId === intentId);
+  }
+
+  /** Pick up appends made by another process (e.g. `guardian approve`) before evaluating. */
+  reloadIfChanged(): void {
+    if (this.path && existsSync(this.path) && statSync(this.path).size !== this.bytes) this.load();
   }
 
   successfulExecutionFor(intentId: string): ExecutionResult | undefined {

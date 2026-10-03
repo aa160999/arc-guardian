@@ -83,7 +83,7 @@ describe("runner — review hardening", () => {
     const core = defaultAllowlist({ GUARDIAN_TREASURY_ADDRESS: "0xabc" }, "core");
     for (const [name, spec] of Object.entries(core)) {
       const argv = spec.argv.join(" ");
-      expect(argv, name).not.toMatch(/deposit|withdraw|transfer|--force|rebase|reauthor|rm /);
+      expect(argv, name).not.toMatch(/deposit|withdraw|transfer|approve|--force|rebase|reauthor|rm /);
       if (/wallet swap/.test(argv)) expect(argv, name).toContain("--quote"); // quotes only, never an executed swap
     }
     expect(core["git-reauthor-all"]).toBeUndefined();

@@ -78,14 +78,18 @@ describe("AP agent on the real invoice set", () => {
     expect(by["openai-3XLNQNBZ-0002.txt"].usdc).toBe(4.17);
     expect(by["openai-3XLNQNBZ-0002.txt"].queued).toBe(false);
 
-    expect(readdirSync(o.queueDir).sort()).toEqual(["inv-proxy-cheap-PC-625451.json", "inv-proxy-cheap-PC-652071.json"]);
+    const q = readdirSync(o.queueDir).sort();
+    expect(q).toHaveLength(2);
+    expect(q[0]).toMatch(/^inv-proxy-cheap-PC625451-[0-9a-f]{8}\.json$/);
+    expect(q[1]).toMatch(/^inv-proxy-cheap-PC652071-[0-9a-f]{8}\.json$/);
   });
 
   it("with enough balance everything payable is queued with FX recorded in the reason", async () => {
     const o = setup(60);
     const recs = await runAp(o);
     expect(recs.filter((r) => r.queued)).toHaveLength(5);
-    const intent = JSON.parse(readFileSync(join(o.queueDir, "inv-openai-3XLNQNBZ-0003.json"), "utf8"));
+    const file = readdirSync(o.queueDir).find((f) => f.startsWith("inv-openai-3XLNQNBZ0003-"))!;
+    const intent = JSON.parse(readFileSync(join(o.queueDir, file), "utf8"));
     expect(intent).toMatchObject({ vendorId: "openai", amount: 4.17, currency: "USDC", invoiceId: "3XLNQNBZ-0003" });
     expect(intent.reason).toMatch(/IDR 75000 @ 18000/);
     expect(existsSync(join(o.outDir, "openai-3XLNQNBZ-0003.json"))).toBe(true);
@@ -113,5 +117,14 @@ describe("AP agent on the real invoice set", () => {
     expect(fx.source).toMatch(/fallback/);
     expect(fx.rate).toBeGreaterThan(10000);
     await expect(fxUsdPer("XXX", down)).rejects.toThrow(/no FX rate/);
+  });
+});
+
+describe("AP agent — second review", () => {
+  it("vendor matching is whole-token: no 'pen'→openai or 'ion'→notion", () => {
+    expect(matchVendor(POLICY, "Pen")).toBeUndefined();
+    expect(matchVendor(POLICY, "ION")).toBeUndefined();
+    expect(matchVendor(POLICY, "Open AI Labs Scam Ltd")).toBeUndefined();
+    expect(matchVendor(POLICY, "OpenAI OpCo, LLC")).toBe("openai");
   });
 });

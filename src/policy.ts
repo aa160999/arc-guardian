@@ -5,7 +5,8 @@ import { Policy, type Vendor } from "./types.js";
 
 /** Stable JSON (sorted keys) so hashes are reproducible across runs. */
 export function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortKeys(value));
+  // Round-trip first so what we hash is exactly what a reader will parse back (Dates → strings, undefined dropped, -0 → 0).
+  return JSON.stringify(sortKeys(JSON.parse(JSON.stringify(value))));
 }
 
 function sortKeys(v: unknown): unknown {

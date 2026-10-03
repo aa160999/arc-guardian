@@ -42,21 +42,21 @@ anchor — signing the head hash with the treasury wallet is on the roadmap.
 
 | Rule | Verdict | What it catches |
 | --- | --- | --- |
-| `idempotency` | deny | same `intentId` again — after a confirmed payment, or after an attempt that reached Circle but did not confirm (crash, non-terminal state → a human reconciles) |
+| `idempotency` | deny | same `intentId` again after *any* prior attempt — confirmed, failed or unknown. The CLI may have broadcast before it errored, so a human reconciles and re-issues under a new id if the money truly did not move |
 | `known-recipient` | deny / hold | payee not in the vendor registry (policy chooses) |
 | `recipient-mismatch` | deny | `vendorId` and `to` disagree — the invoice-fraud shape |
 | `currency` | deny | paying a vendor in a token they don't accept |
 | `risk-tier` | hold | high-risk vendors always need a human |
 | medium risk | — | caps multiplied by `mediumRiskCapMultiplier` (default 0.5) |
-| `duplicate-invoice` | deny | same vendor + same `invoiceId` already settled |
+| `duplicate-invoice` | deny | same vendor + same invoice already settled (`"#INV-1234"` and `"inv 1234"` compare equal) |
 | `possible-duplicate` | hold | same vendor + same amount inside `duplicateWindowDays` |
 | `cap:*` | deny | per-tx and rolling daily/weekly/monthly, global and per vendor; counted per token (USDC caps count USDC, EURC caps count EURC) |
 | `approval-threshold` | hold | amount ≥ threshold needs `guardian approve` |
-| `approval` | allow / deny | a recorded token lifts a **hold** (never a deny), and only for the exact `(to, amount, currency)` that was held |
+| `approval` | allow / hold | a recorded token lifts a **hold** (never a deny) — only for the exact `(to, amount, currency)` and the exact set of hold rules present when it was granted. A hold that appears later (say, `possible-duplicate`) needs a fresh approval. A wrong or stale token lifts nothing; the intent stays held |
 
 Circle stack used: **Agent Wallets** (custody, gas sponsored in USDC), **USDC** native settlement, **EURC** via **Swap** for vendors that invoice in euros, **Gateway** unified balance in the treasury view, **Contracts** lookups for token addresses.
 
-Deny always beats hold; hold always beats allow.
+Deny always beats hold; hold always beats allow. Approving is a human act: `guardian approve <intentId> --by <name>` runs in the owner's terminal and is deliberately **not** available through the file-driven runner — the agent that proposes payments can never approve its own holds.
 
 ## Quickstart (dry run, no wallet needed)
 
@@ -102,7 +102,7 @@ The same worker also runs an **allow-listed command runner**: drop
 `{ "run": "npm-test" }` or `{ "run": "git-commit", "args": ["msg"] }` into
 `data/cmd/` and read `data/cmd/results/`. Only fixed argv entries in
 `src/runner.ts` can run. The default `core` profile is tests, typecheck, the AP agent, ledger
-inspection, plain git and read-only `circle` queries — nothing that moves funds. `GUARDIAN_RUNNER_PROFILE=dev`
+inspection, plain git and read-only `circle` queries — nothing that moves funds and nothing that approves. `GUARDIAN_RUNNER_PROFILE=dev`
 adds this repo's own release/demo tooling. No shell is ever spawned, free-text args are validated
 (no leading `-`, no `..`), and interactive logins are deliberately absent.
 
@@ -149,6 +149,14 @@ agent / LLM ──intent──▶ Guardian.pay()
 - `src/executors.ts` — `DryRunExecutor`, `CircleCliExecutor`
 - `src/guardian.ts` — orchestration + human approval flow
 - `src/cli.ts` — `guardian check | pay | approve | ledger verify | ledger summary`
+
+## Known limits (read before trusting it with real money)
+
+- **Trust boundary is the folder, not the file.** The worker hot-reloads `policy.yaml`, and `npm-test` / `ap-run` execute whatever is in `src/`. If the agent's sandbox can write the whole repo, it can rewrite the policy. Give a sandboxed agent `data/queue/` only (bind-mount that directory, nothing else).
+- **Caps are per token.** Global USDC and EURC caps are separate budgets, and the USDC consumed by a USDC→EURC swap is not charged against any cap. For a mixed-currency treasury, set the EURC caps with that in mind.
+- **No pre-execution record.** If the process dies between a successful `circle` transfer and the ledger append, the payment is on chain but not in the ledger; the next attempt under the same id is blocked only if the failure was observed. Writing an "attempting" entry before calling the CLI is the fix and is not done yet.
+- **No external anchor.** The hash chain detects edits and deletions in the middle. Truncating the tail or re-generating the whole chain is only detectable against a published head hash (next step: sign it with the treasury wallet; cheapest step: paste it into each Canteen update).
+- **Arc only.** The executor refuses other chains: on Arc, USDC is the native token and `circle wallet transfer` without `--token` is USDC; elsewhere it would move the native coin.
 
 ## Roadmap (hackathon window)
 

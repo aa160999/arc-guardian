@@ -85,7 +85,7 @@ export class CircleCliExecutor implements Executor {
   constructor(private readonly bin: string = "circle") {}
 
   private async run(args: string[]): Promise<{ raw: unknown; data: Record<string, unknown> | undefined }> {
-    const { stdout } = await execFileP(this.bin, args, { env: { ...process.env, CIRCLE_ACCEPT_TERMS: "1" }, maxBuffer: 1 << 20 });
+    const { stdout } = await execFileP(this.bin, args, { env: { ...process.env, CIRCLE_ACCEPT_TERMS: "1" }, maxBuffer: 1 << 20, timeout: 180_000 });
     const raw = safeJson(stdout);
     const data = (raw as { data?: Record<string, unknown> })?.data;
     return { raw, data: data && typeof data === "object" ? data : undefined };
@@ -94,12 +94,15 @@ export class CircleCliExecutor implements Executor {
   async execute(d: Decision, opts: ExecuteOpts): Promise<ExecutionResult> {
     if (d.verdict !== "allow") throw new Error("refusing to execute a non-allow decision");
     if (!d.to) throw new Error("decision has no recipient");
+    // USDC is the native token on Arc, so `transfer` without --token is USDC there. On any other chain the
+    // same command would move the native coin — refuse rather than guess.
+    if (!(opts.chain in EXPLORER)) throw new Error(`CircleCliExecutor supports ARC and ARC-TESTNET only, got ${opts.chain}`);
     const executedAt = opts.now.toISOString();
     const steps: Array<{ step: string; raw: unknown }> = [];
+    let swapTxHash: string | undefined;
     try {
       const amount = fixed6(d.amount);
       const transferArgs = ["wallet", "transfer", d.to, "--amount", amount, "--address", opts.from, "--chain", opts.chain, "--output", "json"];
-      let swapTxHash: string | undefined;
       if (d.currency !== "USDC") {
         const token = TOKEN_CONTRACTS[opts.chain]?.[d.currency];
         if (!token) throw new Error(`no ${d.currency} contract known for ${opts.chain}`);
@@ -107,11 +110,15 @@ export class CircleCliExecutor implements Executor {
         const q = await this.run(["wallet", "swap", "USDC", "1", d.currency, "--chain", opts.chain, "--quote", "--output", "json"]);
         steps.push({ step: "quote", raw: q.raw });
         const rate = Number(q.data?.estimatedOutput);
-        if (!(rate > 0)) throw new Error("swap quote returned no rate");
+        // USDC↔EURC should be near parity; a wild quote means a broken route, not a bargain. Never let a quote
+        // decide how much USDC leaves the treasury: the sell amount is capped relative to what Guardian approved.
+        if (!(rate >= 0.5 && rate <= 2)) throw new Error(`swap quote out of sane range (1 USDC → ${q.data?.estimatedOutput} ${d.currency}); refusing`);
         // Observed on Arc testnet 2026-10-01: routing succeeds for whole-number sell amounts with an explicit
         // stop-limit (e.g. "USDC 1 EURC 0.8") and fails ("No route available") for fractional ones (3.8, 3.79).
         // So: sell a whole number of USDC with ≥10% headroom, stop-limit = exactly what is owed, slippage sized to match.
         const sell = Math.max(1, Math.ceil((d.amount / rate) * 1.1));
+        const sellCap = Math.ceil(d.amount * 1.5) + 1;
+        if (sell > sellCap) throw new Error(`swap would sell ${sell} USDC for ${d.amount} ${d.currency}; cap is ${sellCap}`);
         const expected = sell * rate;
         const slippageBps = Math.min(9000, Math.ceil((1 - d.amount / expected) * 10000) + 100);
         const sw = await this.run(["wallet", "swap", "USDC", String(sell), d.currency, amount, "--address", opts.from, "--chain", opts.chain, "--slippage-bps", String(slippageBps), "--idempotency-key", `swap-${d.intentId}`, "--output", "json"]);
@@ -146,11 +153,16 @@ export class CircleCliExecutor implements Executor {
         executedAt,
       };
     } catch (err: unknown) {
-      const e = err as { stdout?: string; stderr?: string; message?: string };
+      const e = err as { stdout?: string; stderr?: string; message?: string; killed?: boolean };
+      // We cannot know whether the CLI broadcast before it failed (timeout, network, non-zero exit after send).
+      // Record everything we do know; the engine treats any attempt under this intentId as spent.
+      const broadcastUnknown = e.killed || /timeout|ETIMEDOUT|ECONNRESET|socket/i.test(e.message ?? "");
       return {
         intentId: d.intentId,
         ok: false,
-        error: (e.stderr || e.message || "circle cli failed").trim(),
+        state: broadcastUnknown ? "UNKNOWN" : undefined,
+        swapTxHash,
+        error: (e.stderr || e.message || "circle cli failed").trim() + (swapTxHash ? ` [USDC→${d.currency} swap already executed: ${swapTxHash}; EURC is sitting in the treasury]` : ""),
         raw: steps.length ? steps : e.stdout ? safeJson(e.stdout) : undefined,
         executedAt,
       };

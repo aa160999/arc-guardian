@@ -115,7 +115,13 @@
       "image": "shot-ledger.png",
       "pan": false,
       "caption": "aa160999.github.io/arc-guardian — everything the agent saw and concluded",
-      "narration": "Everything the agent saw and concluded is on a public page: the reasoning, which rules fired, every transaction. The page just recomputed every hash in the browser: twenty-one entries, chain intact. Edit one line after the fact, and it breaks at that entry."
+      "narration": "Everything the agent saw and concluded is on a public page: the reasoning, which rules fired, every transaction. The page just recomputed every hash in the browser: twenty-one entries, chain intact. Edit one line after the fact, and it breaks at that entry.",
+      "crop": [
+        0,
+        0,
+        1600,
+        880
+      ]
     },
     {
       "id": "10-close",

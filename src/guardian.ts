@@ -34,6 +34,7 @@ export class Guardian {
   check(rawIntent: unknown): Decision {
     const intent = PaymentIntent.parse(rawIntent);
     const now = this.o.now?.() ?? new Date();
+    this.o.ledger.reloadIfChanged();
     const decision = evaluate(this.o.policy, this.o.ledger, intent, now);
     this.o.ledger.append({ kind: "decision", intent, decision }, now);
     return decision;
@@ -50,9 +51,11 @@ export class Guardian {
   }
 
   /**
-   * A human lifts a HOLD. Returns the token the agent must attach as
-   * `intent.approvalToken` when it re-submits the same intentId.
-   * Approval is recorded in the ledger, so it is auditable and single-use per intent.
+   * A human lifts a HOLD. Returns the token the agent must attach as `intent.approvalToken`
+   * when it re-submits the same intentId. The approval is recorded in the ledger and bound to
+   * (recipient, amount, currency, the exact hold rules present at approval time): if a new hold
+   * appears later — say a possible-duplicate — the token no longer applies. Once the intent
+   * executes, idempotency stops any further use.
    */
   approve(intentId: string, approver: string, note?: string): string {
     if (this.o.ledger.successfulExecutionFor(intentId)) throw new Error(`intent ${intentId} already executed; nothing to approve`);

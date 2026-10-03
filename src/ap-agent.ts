@@ -13,6 +13,7 @@
  *        npm run ap -- --dry   (decisions only, no intents)
  */
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { promisify } from "node:util";
@@ -119,10 +120,14 @@ export async function fxUsdPer(quote: string, fetchFn = fetch): Promise<Fx> {
 
 /** Map an extracted vendor name onto the policy's vendor registry by name similarity (id or name substring). */
 export function matchVendor(policy: Policy, vendorName: string): string | undefined {
-  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const n = norm(vendorName);
-  if (n.length < 3) return undefined;
-  const hit = policy.vendors.find((v) => [v.id, v.name, ...v.aliases].map(norm).some((k) => k.length >= 3 && (n.includes(k) || k.includes(n))));
+  // Whole-token match only: "openai opco" matches alias "openai"; "pen" or "ion" match nothing.
+  const tokens = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter((t) => t.length >= 3);
+  const n = new Set(tokens(vendorName));
+  if (!n.size) return undefined;
+  const hit = policy.vendors.find((v) => [v.id, v.name, ...v.aliases].some((k) => {
+    const kt = tokens(k);
+    return kt.length > 0 && kt.every((t) => n.has(t));
+  }));
   return hit?.id;
 }
 
@@ -193,9 +198,13 @@ export async function runAp(o: ApOptions): Promise<ApRecord[]> {
   // pass 1: extract everything so pass 2 can see vendor history
   const extracted: Array<{ file: string; ex: Extracted }> = [];
   for (const f of files) {
-    const text = readFileSync(join(o.invoicesDir, f), "utf8");
-    const ex = await llmJson(o.cfg, Extracted, [{ role: "system", content: EXTRACT_SYS }, { role: "user", content: text }], o.chatFn);
-    extracted.push({ file: f, ex });
+    try {
+      const text = readFileSync(join(o.invoicesDir, f), "utf8");
+      const ex = await llmJson(o.cfg, Extracted, [{ role: "system", content: EXTRACT_SYS }, { role: "user", content: text }], o.chatFn);
+      extracted.push({ file: f, ex });
+    } catch (e) {
+      console.error(`[ap] ${f}: extraction failed, skipping — ${e instanceof Error ? e.message : e}`);
+    }
   }
   extracted.sort((a, b) => a.ex.issueDate.localeCompare(b.ex.issueDate));
 
@@ -226,7 +235,9 @@ export async function runAp(o: ApOptions): Promise<ApRecord[]> {
 
     const rec: ApRecord = { file, extracted: ex, judgement, vendorId, queued: false, at: new Date().toISOString() };
 
-    if (judgement.action === "pay_now" && ex.amountDue > 0) {
+    if (judgement.action === "pay_now" && ex.alreadyPaid) {
+      rec.skippedBecause = "LLM said pay_now but extraction says alreadyPaid; not queuing";
+    } else if (judgement.action === "pay_now" && ex.amountDue > 0) {
       const fx = await fxUsdPer(ex.currency, o.fetchFn);
       const usdc = Math.round((ex.amountDue / fx.rate) * 100) / 100;
       // Vendors that accept EURC get paid in EURC at face value (swap happens in the executor); budget is still tracked in USDC.
@@ -239,10 +250,14 @@ export async function runAp(o: ApOptions): Promise<ApRecord[]> {
       rec.balanceUsdc = remaining;
       if (!vendorId) {
         rec.skippedBecause = "vendor not in policy registry; Guardian would deny — needs a human to add the vendor";
+      } else if (payAmount < 0.01) {
+        rec.skippedBecause = `amount rounds to ${payAmount}; nothing payable`;
       } else if (remaining !== undefined && usdc > remaining) {
         rec.skippedBecause = `insufficient treasury balance (${remaining} USDC < ${usdc} USDC); deferred`;
       } else if (!o.dry) {
-        const intentId = `inv-${vendorId}-${ex.invoiceId}`.replace(/[^A-Za-z0-9._-]/g, "_");
+        // readable prefix + short hash of (vendor, invoice) so "INV/1" and "INV_1" cannot collide into one file
+        const idHash = createHash("sha256").update(`${vendorId}\u0000${ex.invoiceId}`).digest("hex").slice(0, 8);
+        const intentId = `inv-${vendorId}-${ex.invoiceId.replace(/[^A-Za-z0-9]/g, "")}-${idHash}`;
         const intent = {
           intentId,
           vendorId,

@@ -49,7 +49,7 @@ export function buildReportData(i: ReportInput) {
     summary: {
       decisions: counts,
       settled: settled.length,
-      usdcMoved: Math.round(settled.reduce((s, p) => s + p.decision.amount, 0) * 100) / 100,
+      usdcMoved: Math.round(settled.filter((p) => p.decision.currency === "USDC").reduce((s, p) => s + p.decision.amount, 0) * 100) / 100,
       testPayments: testPayments.length,
       byVendor,
       chainOk: i.ledger.verify().ok,
@@ -59,6 +59,7 @@ export function buildReportData(i: ReportInput) {
     vendors: i.policy.vendors.map((v) => ({ id: v.id, name: v.name, riskTier: v.riskTier, caps: v.caps, notes: v.notes ?? "" })),
     caps: i.policy.caps,
     approvalThreshold: i.policy.approvalThreshold ?? null,
+    unknownRecipient: i.policy.unknownRecipient,
     ledger: entries as LedgerEntry[],
     ap: i.apRecords,
   };
@@ -100,7 +101,7 @@ details summary{cursor:pointer;color:var(--mut);font-size:13px}
 
 <div class="cards">
   <div class="card"><div class="k">Payments settled</div><div class="v" id="c-settled"></div></div>
-  <div class="card"><div class="k">USDC moved</div><div class="v" id="c-moved"></div></div>
+  <div class="card"><div class="k">Moved (USDC-denominated)</div><div class="v" id="c-moved"></div></div>
   <div class="card"><div class="k">Decisions</div><div class="v dec" id="c-dec"></div></div>
   <div class="card"><div class="k">Ledger entries</div><div class="v" id="c-entries"></div></div>
   <div class="card"><div class="k">Hash chain</div><div class="v" id="c-chain"></div></div>
@@ -108,7 +109,7 @@ details summary{cursor:pointer;color:var(--mut);font-size:13px}
 </div>
 
 <p><button id="verify">Verify chain in this browser</button><span id="verify-out"></span></p>
-<p class="sub">Every entry commits to the previous entry's SHA-256. Click to recompute all of them locally from the embedded data — if any line had been edited or removed after the fact, the chain would break at that seq.</p>
+<p class="sub">Every entry commits to the previous entry's SHA-256. Click to recompute all of them locally from the embedded data — an edited or deleted entry in the middle breaks the chain at that seq. (Truncating the tail is only detectable against an external anchor; signing the head hash is on the roadmap.)</p>
 
 <h2>What the agent saw and concluded</h2>
 <table id="ap"><thead><tr><th>Invoice</th><th>Vendor</th><th>Amount</th><th>AI action</th><th>Reasoning</th><th>USDC / intent</th></tr></thead><tbody></tbody></table>
@@ -119,7 +120,7 @@ details summary{cursor:pointer;color:var(--mut);font-size:13px}
 <table id="ledger-test" style="margin-top:10px"><thead><tr><th>#</th><th>Time (UTC)</th><th>Kind</th><th>Intent</th><th>Vendor · amount</th><th>Verdict / result</th><th>Rules</th></tr></thead><tbody></tbody></table></details>
 
 <h2>Policy the agent cannot edit</h2>
-<table id="policy"><thead><tr><th>Vendor</th><th>Risk</th><th>Caps (USDC)</th><th>Owner notes</th></tr></thead><tbody></tbody></table>
+<table id="policy"><thead><tr><th>Vendor</th><th>Risk</th><th>Caps (in the vendor's token)</th><th>Owner notes</th></tr></thead><tbody></tbody></table>
 <p class="sub" id="global-caps"></p>
 
 <div class="foot">Money moves only through <code>Guardian.pay()</code>. The LLM proposes; the deterministic policy engine decides; the Circle agent wallet executes on Arc; the ledger records. <a href="${esc(data.repoUrl)}">github</a></div>
@@ -130,9 +131,9 @@ const D = JSON.parse(document.getElementById('data').textContent);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pill = v => '<span class="pill '+v+'">'+v+'</span>';
-const txlink = h => h ? '<a class="mono" href="'+D.explorerBase+'/tx/'+h+'" target="_blank" rel="noopener">'+h.slice(0,10)+'…'+h.slice(-6)+'</a>' : '';
-$('#c-settled').textContent = D.summary.settled;
-$('#c-moved').innerHTML = D.summary.usdcMoved + ' <small>USDC</small>';
+const txlink = h => (typeof h==='string' && /^0x[0-9a-fA-F]{64}$/.test(h)) ? '<a class="mono" href="'+D.explorerBase+'/tx/'+h+'" target="_blank" rel="noopener">'+h.slice(0,10)+'…'+h.slice(-6)+'</a>' : esc(h||'');
+$('#c-settled').textContent = String(D.summary.settled);
+$('#c-moved').innerHTML = esc(D.summary.usdcMoved) + ' <small>USDC</small>';
 $('#c-dec').innerHTML = D.summary.decisions.allow+' <small>allow</small> · '+D.summary.decisions.hold+' <small>hold</small> · '+D.summary.decisions.deny+' <small>deny</small>';
 $('#c-entries').textContent = D.summary.entries;
 $('#c-chain').innerHTML = D.summary.chainOk ? '<span class="ok">intact</span>' : '<span class="bad">BROKEN</span>';
@@ -143,9 +144,9 @@ if (D.summary.testPayments) $('#c-settled').innerHTML += ' <small>+ '+D.summary.
 const apRows = (D.ap||[]).slice().sort((a,b)=> (a.extracted.issueDate||'').localeCompare(b.extracted.issueDate||''));
 $('#ap tbody').innerHTML = apRows.map(r => {
   const e=r.extracted, j=r.judgement;
-  const act = j.action==='pay_now'?'allow':j.action==='hold'?'hold':j.action==='skip'?'deny':'hold';
-  const label = {pay_now:'pay now',hold:'hold for human',skip:'skip (nothing due)',schedule:'schedule'}[j.action]||j.action;
-  return '<tr><td class="mono">'+esc(e.invoiceId)+'<br><span class="sub">'+esc(e.issueDate)+'</span></td><td>'+esc(e.vendorName)+'<br><span class="sub">'+esc(e.description)+'</span></td><td class="mono">'+esc(e.currency)+' '+esc(e.amountDue)+(e.alreadyPaid?'<br><span class="sub">already paid</span>':'')+'</td><td><span class="pill '+act+'">'+label+'</span><br><span class="sub">confidence '+j.confidence+'</span></td><td class="reason">'+esc(j.reasoning)+(j.anomalies&&j.anomalies.length?'<br><span class="anom">⚠ '+j.anomalies.map(esc).join(' · ')+'</span>':'')+'</td><td class="mono">'+(r.usdc!=null?r.usdc+' USDC<br>':'')+(r.intentId?'<span class="sub">'+esc(r.intentId)+'</span>':r.skippedBecause?'<span class="sub">'+esc(r.skippedBecause)+'</span>':'')+'</td></tr>';
+  const act = {pay_now:'allow',hold:'hold',skip:'deny',schedule:'hold'}[j.action]||'hold';
+  const label = {pay_now:'pay now',hold:'hold for human',skip:'skip (nothing due)',schedule:'schedule'}[j.action]||esc(j.action);
+  return '<tr><td class="mono">'+esc(e.invoiceId)+'<br><span class="sub">'+esc(e.issueDate)+'</span></td><td>'+esc(e.vendorName)+'<br><span class="sub">'+esc(e.description)+'</span></td><td class="mono">'+esc(e.currency)+' '+esc(e.amountDue)+(e.alreadyPaid?'<br><span class="sub">already paid</span>':'')+'</td><td><span class="pill '+act+'">'+label+'</span><br><span class="sub">confidence '+esc(j.confidence)+'</span></td><td class="reason">'+esc(j.reasoning)+(Array.isArray(j.anomalies)&&j.anomalies.length?'<br><span class="anom">⚠ '+j.anomalies.map(esc).join(' · ')+'</span>':'')+'</td><td class="mono">'+(r.usdc!=null?esc(r.usdc)+' '+esc(r.payCurrency||'USDC')+'<br>':'')+(r.intentId?'<span class="sub">'+esc(r.intentId)+'</span>':r.skippedBecause?'<span class="sub">'+esc(r.skippedBecause)+'</span>':'')+'</td></tr>';
 }).join('');
 
 // ledger timeline (test-* entries go to the collapsed table)
@@ -153,14 +154,14 @@ const rowHtml = e => {
   const t = e.ts.replace('T',' ').slice(0,19);
   if (e.kind==='decision') {
     const d=e.decision;
-    return '<tr><td>'+e.seq+'</td><td class="mono">'+t+'</td><td class="kind">decision</td><td class="mono">'+esc(d.intentId)+'</td><td>'+esc(d.vendorId||d.to||'')+' · <span class="mono">'+d.amount+' '+d.currency+'</span></td><td>'+pill(d.verdict)+'</td><td>'+(d.hits.length?d.hits.map(h=>'<span class="hit"><b>'+esc(h.rule)+'</b> → '+h.verdict+' — '+esc(h.detail)+'</span>').join(''):'<span class="hit">no rule hits</span>')+'</td></tr>';
+    return '<tr><td>'+esc(e.seq)+'</td><td class="mono">'+esc(t)+'</td><td class="kind">decision</td><td class="mono">'+esc(d.intentId)+'</td><td>'+esc(d.vendorId||d.to||'')+' · <span class="mono">'+esc(d.amount)+' '+esc(d.currency)+'</span></td><td>'+pill(esc(d.verdict))+'</td><td>'+(d.hits.length?d.hits.map(h=>'<span class="hit"><b>'+esc(h.rule)+'</b> → '+esc(h.verdict)+' — '+esc(h.detail)+'</span>').join(''):'<span class="hit">no rule hits</span>')+'</td></tr>';
   }
   if (e.kind==='execution') {
     const r=e.result;
-    return '<tr><td>'+e.seq+'</td><td class="mono">'+t+'</td><td class="kind">execution</td><td class="mono">'+esc(r.intentId)+'</td><td></td><td>'+(r.ok?'<span class="pill allow">'+esc(r.state||'ok')+'</span> '+txlink(r.txHash):'<span class="pill deny">failed</span> '+esc(r.error||''))+'</td><td class="hit">'+(r.networkFee?'gas '+esc(r.networkFee)+' USDC':'')+'</td></tr>';
+    return '<tr><td>'+esc(e.seq)+'</td><td class="mono">'+esc(t)+'</td><td class="kind">execution</td><td class="mono">'+esc(r.intentId)+'</td><td></td><td>'+(r.ok?'<span class="pill allow">'+esc(r.state||'ok')+'</span> '+txlink(r.txHash):'<span class="pill deny">failed</span> '+esc(r.error||''))+'</td><td class="hit">'+(r.networkFee?'gas '+esc(r.networkFee)+' USDC':'')+'</td></tr>';
   }
   if (e.kind==='approval') {
-    return '<tr><td>'+e.seq+'</td><td class="mono">'+t+'</td><td class="kind">approval</td><td class="mono">'+esc(e.intentId)+'</td><td></td><td><span class="pill hold">approved by '+esc(e.approver)+'</span></td><td class="hit">token '+esc(e.approvalToken)+(e.note?' — '+esc(e.note):'')+'</td></tr>';
+    return '<tr><td>'+esc(e.seq)+'</td><td class="mono">'+esc(t)+'</td><td class="kind">approval</td><td class="mono">'+esc(e.intentId)+'</td><td></td><td><span class="pill hold">approved by '+esc(e.approver)+'</span></td><td class="hit">token '+esc(e.approvalToken)+(e.note?' — '+esc(e.note):'')+'</td></tr>';
   }
   return '';
 };
@@ -170,7 +171,7 @@ $('#ledger-test tbody').innerHTML = D.ledger.filter(e => /^test-/.test(intentOf(
 
 // policy
 $('#policy tbody').innerHTML = D.vendors.map(v => '<tr><td><b>'+esc(v.id)+'</b><br><span class="sub">'+esc(v.name)+'</span></td><td>'+esc(v.riskTier)+'</td><td class="mono">'+esc(JSON.stringify(v.caps))+'</td><td class="sub">'+esc(v.notes)+'</td></tr>').join('');
-$('#global-caps').textContent = 'Global caps: '+JSON.stringify(D.caps)+(D.approvalThreshold!=null?' · human approval at ≥ '+D.approvalThreshold+' USDC':'')+' · unknown recipients are denied.';
+$('#global-caps').textContent = 'Global caps (per token): '+JSON.stringify(D.caps)+(D.approvalThreshold!=null?' · human approval at ≥ '+D.approvalThreshold:'')+' · unknown recipients: '+D.unknownRecipient+'.';
 
 // verify chain locally (same canonical JSON + sha256(prevHash + "\\n" + body) as src/ledger.ts)
 function sortKeys(v){ if(Array.isArray(v)) return v.map(sortKeys); if(v&&typeof v==='object'){ return Object.keys(v).sort().reduce((a,k)=>{a[k]=sortKeys(v[k]);return a;},{}); } return v; }
@@ -198,7 +199,12 @@ function esc(s: string): string {
 export function generateReport(opts: { policyPath: string; ledgerPath: string; apDir: string; outPath: string; chain: string; treasury: string; repoUrl: string; now?: Date }): string {
   const policy = loadPolicy(opts.policyPath);
   const ledger = new Ledger(opts.ledgerPath);
-  const apRecords = existsSync(opts.apDir) ? readdirSync(opts.apDir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(join(opts.apDir, f), "utf8"))) : [];
+  const apRecords = existsSync(opts.apDir)
+    ? readdirSync(opts.apDir)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => JSON.parse(readFileSync(join(opts.apDir, f), "utf8")))
+        .filter((r) => r && typeof r === "object" && r.extracted && r.judgement) // shape only; every string is escaped at render time
+    : [];
   const html = renderHtml(buildReportData({ policy, ledger, apRecords, chain: opts.chain, treasury: opts.treasury, repoUrl: opts.repoUrl, generatedAt: (opts.now ?? new Date()).toISOString() }));
   mkdirSync(join(opts.outPath, ".."), { recursive: true });
   writeFileSync(opts.outPath, html);

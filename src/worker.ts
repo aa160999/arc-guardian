@@ -15,6 +15,7 @@
  *         npm run worker -- --dry-run
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { regularFile } from "./fsq.js";
 import { basename, join } from "node:path";
 import { loadDotenv } from "./env.js";
 import { CircleCliExecutor, DryRunExecutor } from "./executors.js";
@@ -43,7 +44,7 @@ export async function processQueueOnce(dirs: WorkerDirs, guardian: Guardian, opt
   const files = readdirSync(dirs.queue)
     .filter((f) => f.endsWith(".json"))
     .map((f) => join(dirs.queue, f))
-    .filter((p) => statSync(p).isFile() && nowMs - statSync(p).mtimeMs >= settleMs)
+    .filter((p) => regularFile(p, nowMs, settleMs))
     .sort();
 
   const handled: string[] = [];
@@ -126,13 +127,10 @@ async function main() {
   acquireLock(join(root, "worker.lock"));
 
   const executor = dryRun ? new DryRunExecutor() : new CircleCliExecutor();
-  // The ledger file may also be appended by `guardian approve` run outside this process,
-  // so always evaluate against a fresh read: reload whenever the file changed under us.
-  const ledgerMtime = () => (existsSync(ledgerPath) ? statSync(ledgerPath).mtimeMs : 0);
-  const build = () => new Guardian({ policy: loadPolicy(policyPath), ledger: new Ledger(ledgerPath), executor, from: from ?? "0xdry", chain });
+  const ledger = new Ledger(ledgerPath);
+  const build = () => new Guardian({ policy: loadPolicy(policyPath), ledger, executor, from: from ?? "0xdry", chain });
   let guardian = build();
   let policyMtime = statSync(policyPath).mtimeMs;
-  let seenLedgerMtime = ledgerMtime();
   const dirs = makeDirs(root);
   const runnerDirs = makeRunnerDirs(root);
   const allow = defaultAllowlist(process.env, process.env.GUARDIAN_RUNNER_PROFILE === "dev" ? "dev" : "core");
@@ -156,17 +154,9 @@ async function main() {
           policyMtime = m;
         }
       }
-      if (ledgerMtime() !== seenLedgerMtime) {
-        guardian = build();
-        console.log("[worker] ledger changed on disk — reloaded");
-      }
+      // The ledger itself reloads before each evaluation (Ledger.reloadIfChanged), so only the policy needs a rebuild here.
       await processQueueOnce(dirs, guardian);
-      seenLedgerMtime = ledgerMtime();
       await processCommandsOnce(runnerDirs, allow, process.cwd());
-      if (ledgerMtime() !== seenLedgerMtime) {
-        guardian = build();
-        seenLedgerMtime = ledgerMtime();
-      }
     } catch (e) {
       console.error("[worker] tick failed:", e instanceof Error ? e.message : e);
     } finally {

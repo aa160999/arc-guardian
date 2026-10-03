@@ -20,9 +20,17 @@ function worst(a: Verdict, b: Verdict): Verdict {
   return rank[a] >= rank[b] ? a : b;
 }
 
-/** What an approval is bound to: the money-moving facts, not the prose. */
-export function approvalBinding(d: { to?: string; amount: number; currency: string }): string {
-  return sha256(canonicalJson({ to: d.to?.toLowerCase(), amount: d.amount, currency: d.currency }));
+/** What an approval is bound to: the money-moving facts and the exact holds it lifts — never the prose. */
+export function approvalBinding(d: { to?: string; amount: number; currency: string; hits?: RuleHit[] }): string {
+  const holds = (d.hits ?? []).filter((h) => h.verdict === "hold" && h.rule !== "approval").map((h) => h.rule).sort();
+  return sha256(canonicalJson({ to: d.to?.toLowerCase(), amount: d.amount, currency: d.currency, holds }));
+}
+
+/** Invoice ids as printed by vendors vary ("#1234", "INV-1234", "inv 1234"); compare on the alphanumeric core. */
+export function normalizeInvoiceId(id: string | undefined): string | undefined {
+  if (id === undefined) return undefined;
+  const n = id.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return n.length ? n : undefined;
 }
 
 export function evaluate(policy: Policy, ledger: Ledger, intent: PaymentIntent, now: Date = new Date()): Decision {
@@ -34,18 +42,22 @@ export function evaluate(policy: Policy, ledger: Ledger, intent: PaymentIntent, 
     state.verdict = worst(state.verdict, v);
   };
 
-  /* 1. Idempotency: the same intent never executes twice — including an attempt that reached the
-        provider but did not confirm (crash, non-terminal state). Those need a human to reconcile. */
-  const prior = ledger.submittedExecutionFor(intent.intentId);
+  /* 1. Idempotency: the same intentId never executes twice — not after success, and not after a failed
+        or unknown attempt either (the CLI may have broadcast before it errored). A human reconciles and,
+        if the money truly did not move, re-issues under a new intentId. */
+  const prior = ledger.attemptFor(intent.intentId);
   if (prior) {
-    hit("idempotency", "deny", `intent ${intent.intentId} already ${prior.ok ? "executed" : "submitted (state " + (prior.state ?? "unknown") + ")"} (${prior.txHash ?? prior.providerId})`);
+    const what = prior.ok ? "executed" : `attempted (state ${prior.state ?? "unknown"}${prior.error ? ": " + prior.error.slice(0, 80) : ""})`;
+    hit("idempotency", "deny", `intent ${intent.intentId} already ${what}${prior.txHash || prior.providerId ? " (" + (prior.txHash ?? prior.providerId) + ")" : ""}`);
   }
 
   /* 2. Recipient must be a known vendor (or policy says hold for unknown). */
   const vendor = findVendor(policy, { vendorId: intent.vendorId, to: intent.to });
   const to = vendor?.address ?? intent.to;
-  if (!to) {
-    hit("known-recipient", "deny", `vendorId ${intent.vendorId} is not in the registry and no address was given`);
+  if (intent.vendorId && !vendor) {
+    hit("known-recipient", "deny", `vendorId ${intent.vendorId} is not in the registry`);
+  } else if (!to) {
+    hit("known-recipient", "deny", "no vendorId and no address given");
   } else if (!vendor) {
     hit("known-recipient", policy.unknownRecipient, `recipient ${intent.to} is not in the vendor registry`);
   } else if (intent.to && intent.to.toLowerCase() !== vendor.address.toLowerCase()) {
@@ -65,8 +77,9 @@ export function evaluate(policy: Policy, ledger: Ledger, intent: PaymentIntent, 
 
   /* 5. Duplicate detection against settled payments. */
   const settled = ledger.settledPayments();
-  if (vendor && intent.invoiceId) {
-    const exact = settled.find((p) => p.decision.vendorId === vendor.id && p.intent.invoiceId === intent.invoiceId);
+  const invoiceKey = normalizeInvoiceId(intent.invoiceId);
+  if (vendor && invoiceKey) {
+    const exact = settled.find((p) => p.decision.vendorId === vendor.id && normalizeInvoiceId(p.intent.invoiceId) === invoiceKey);
     if (exact) hit("duplicate-invoice", "deny", `invoice ${intent.invoiceId} for ${vendor.id} already paid (intent ${exact.intent.intentId})`);
   }
   if (vendor && policy.duplicateWindowDays > 0) {
@@ -77,7 +90,7 @@ export function evaluate(policy: Policy, ledger: Ledger, intent: PaymentIntent, 
         p.decision.currency === intent.currency &&
         Math.abs(p.decision.amount - intent.amount) < 1e-9 &&
         now.getTime() - Date.parse(p.result.executedAt) <= windowMs &&
-        (intent.invoiceId === undefined || p.intent.invoiceId !== intent.invoiceId),
+        (invoiceKey === undefined || normalizeInvoiceId(p.intent.invoiceId) !== invoiceKey),
     );
     if (near) hit("possible-duplicate", "hold", `same vendor + same amount (${intent.amount} ${intent.currency}) paid within ${policy.duplicateWindowDays}d (intent ${near.intent.intentId})`);
   }
@@ -116,12 +129,14 @@ export function evaluate(policy: Policy, ledger: Ledger, intent: PaymentIntent, 
 
   /* 8. A valid approval token lifts HOLDs (never DENYs), and only for the exact (to, amount, currency) that was held. */
   if (state.verdict === "hold" && intent.approvalToken) {
-    const bind = approvalBinding({ to, amount: intent.amount, currency: intent.currency });
+    const bind = approvalBinding({ to, amount: intent.amount, currency: intent.currency, hits });
     if (ledger.approvalFor(intent.intentId, intent.approvalToken, bind)) {
       hits.push({ rule: "approval", verdict: "allow", detail: `hold lifted by recorded approval ${intent.approvalToken}` });
       state.verdict = "allow";
     } else {
-      hit("approval", "deny", `approval token ${intent.approvalToken} not on ledger for ${intent.intentId} with these exact payment facts`);
+      // A stale or wrong token does not lift anything; the intent simply stays on hold (so a human can
+      // approve it afresh with every current hold visible). It is never upgraded to a deny.
+      hit("approval", "hold", `approval token ${intent.approvalToken} does not match this intent's payment facts and current holds (${hits.filter((h) => h.verdict === "hold").map((h) => h.rule).join(",")}); still held`);
     }
   }
 

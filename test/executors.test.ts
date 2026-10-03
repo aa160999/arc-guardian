@@ -127,3 +127,30 @@ esac
     expect(r.error).toMatch(/no EURC contract/);
   });
 });
+
+describe("CircleCliExecutor — second review", () => {
+  it("refuses chains other than Arc (USDC is only the native token there)", async () => {
+    const bin = fakeCircle(`echo '{}'`);
+    await expect(new CircleCliExecutor(bin).execute(DECISION, { from: "0x", chain: "BASE", now: new Date() })).rejects.toThrow(/ARC and ARC-TESTNET only/);
+  });
+
+  it("never lets a broken quote decide how much USDC to sell", async () => {
+    const bin = fakeCircle(`case "$*" in *--quote*) echo '{"data":{"estimatedOutput":"0.0001"}}';; *) echo '{}';; esac`);
+    const r = await new CircleCliExecutor(bin).execute({ ...DECISION, currency: "EURC", amount: 3.8 }, { from: "0x", chain: "ARC-TESTNET", now: new Date() });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/out of sane range/);
+  });
+
+  it("keeps the swap tx and marks UNKNOWN when the transfer step fails after a successful swap", async () => {
+    const bin = fakeCircle(`case "$*" in
+      *--quote*) echo '{"data":{"estimatedOutput":"0.82"}}';;
+      *"wallet swap"*) echo '{"data":{"transactions":[{"id":"s","state":"COMPLETE","txHash":"0xswapswap"}]}}';;
+      *"wallet transfer"*) echo 'Error: request timeout' 1>&2; exit 1;;
+    esac`);
+    const r = await new CircleCliExecutor(bin).execute({ ...DECISION, currency: "EURC", amount: 3 }, { from: "0x", chain: "ARC-TESTNET", now: new Date() });
+    expect(r.ok).toBe(false);
+    expect(r.swapTxHash).toBe("0xswapswap");
+    expect(r.state).toBe("UNKNOWN");
+    expect(r.error).toMatch(/swap already executed/);
+  });
+});

@@ -11,7 +11,8 @@
  * is deliberately not here — the human does those in their own terminal.
  */
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { regularFile } from "./fsq.js";
 import { basename, join } from "node:path";
 
 export interface CmdSpec {
@@ -64,7 +65,6 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env, profile: 
     "npm-build": { argv: ["npm", "run", "--silent", "build"], timeoutMs: 300_000, description: "tsc build" },
     "guardian-ledger-verify": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "verify"], description: "verify ledger chain" },
     "guardian-ledger-summary": { argv: ["npm", "run", "--silent", "guardian", "--", "ledger", "summary"], description: "ledger summary" },
-    "guardian-approve": { argv: ["npm", "run", "--silent", "guardian", "--", "approve", "$1", "--by", "$2"], args: 2, description: "lift a hold: <intentId> <approver>" },
     "git-status": { argv: ["git", "status", "--short", "--branch"], description: "git status" },
     "git-log": { argv: ["git", "log", "--oneline", "-n", "20"], description: "recent commits" },
     "git-init": { argv: ["git", "init", "-b", "main"], guard: requireNoCommits, description: "git init -b main" },
@@ -187,7 +187,7 @@ export async function processCommandsOnce(dirs: RunnerDirs, allow: Record<string
   const files = readdirSync(dirs.cmd)
     .filter((f) => f.endsWith(".json"))
     .map((f) => join(dirs.cmd, f))
-    .filter((p) => statSync(p).isFile() && nowMs - statSync(p).mtimeMs >= settleMs)
+    .filter((p) => regularFile(p, nowMs, settleMs))
     .sort();
 
   const handled: string[] = [];
