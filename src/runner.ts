@@ -79,6 +79,10 @@ export function defaultAllowlist(env: NodeJS.ProcessEnv = process.env, profile: 
   const dev: Record<string, CmdSpec> = {
     "npm-whoami": { argv: ["npm", "whoami"], description: "is npm logged in?" },
     "npm-publish": { argv: ["npm", "publish", "--access", "public"], timeoutMs: 600_000, description: "publish this package to npm (runs prepublishOnly: typecheck + test + build)" },
+    "gh-repo-describe": {
+      argv: ["gh", "repo", "edit", "aa160999/arc-guardian", "--description", "Spending guardrails + hash-chained decision ledger for AI agents paying USDC on Arc. The model proposes, a deterministic policy decides, a human lifts holds.", "--homepage", "https://aa160999.github.io/arc-guardian/", "--add-topic", "arc", "--add-topic", "circle", "--add-topic", "usdc", "--add-topic", "ai-agents", "--add-topic", "guardrails"],
+      description: "set the GitHub About description/homepage/topics (what Discord and Google show)",
+    },
     "gh-pages-enable": { argv: ["gh", "api", "-X", "POST", "repos/aa160999/arc-guardian/pages", "-f", "source[branch]=main", "-f", "source[path]=/docs"], description: "enable GitHub Pages from /docs on main" },
     "tts": { argv: ["npm", "run", "--silent", "tts"], timeoutMs: 600_000, description: "narrate video/script.json with Gemini TTS → data/video/audio" },
     "chrome-shot-ledger": {
