@@ -9,6 +9,7 @@ agent wallet move the USDC. The LLM never touches the policy and nothing in the
 policy engine reads the LLM's prose — so an agent cannot talk its way past it.
 
 > Built for the [Tameion Agents Hackathon](https://tameion.thecanteenapp.com/) (Canteen × Circle, Sep 27 – Oct 10 2026).
+> **Demo video (3 min):** https://youtu.be/2DwY6gnQPqw · **Live ledger:** https://aa160999.github.io/arc-guardian/
 > Status (Oct 1): policy engine, ledger, CLI, worker/runner, Circle CLI executor (USDC + EURC via swap), reference AP agent, live ledger page — all exercised on Arc testnet.
 > First live payment on Arc testnet went through Guardian on 2026-09-27:
 > [`0x0f13e2…c216`](https://explorer.testnet.arc.io/tx/0x0f13e232762a0844cec750c173517b109ae775b2cef1b6d12a7cd5181733c216)
